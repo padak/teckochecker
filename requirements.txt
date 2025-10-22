@@ -1,0 +1,34 @@
+# FastAPI and server
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Database
+sqlalchemy
+alembic
+
+# Validation and settings
+pydantic>=2.0
+pydantic-settings
+
+# Security and encryption
+cryptography
+
+# HTTP client
+httpx
+requests
+aiohttp
+
+# OpenAI SDK
+openai
+
+# CLI (for future CLI implementation)
+typer
+rich
+
+# Utilities
+python-dotenv
+
+# Testing
+pytest
+pytest-asyncio

@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "teckochecker"
+version = "0.1.0"
+description = "Polling orchestration for async workflows - Monitor OpenAI batch jobs and trigger Keboola workflows"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "TeckoChecker Team"}
+]
+keywords = ["polling", "orchestration", "openai", "keboola", "batch-jobs", "workflow"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "sqlalchemy>=2.0.25",
+    "alembic>=1.13.1",
+    "typer[all]>=0.9.0",
+    "rich>=13.7.0",
+    "httpx>=0.26.0",
+    "cryptography>=42.0.0",
+    "openai>=1.10.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.5.3",
+    "pydantic-settings>=2.1.0",
+    "requests>=2.31.0",
+    "python-multipart>=0.0.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.3",
+    "pytest-asyncio>=0.21.1",
+    "pytest-cov>=4.1.0",
+    "black>=23.12.0",
+    "ruff>=0.1.9",
+    "mypy>=1.7.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/teckochecker"
+Documentation = "https://github.com/yourusername/teckochecker/docs"
+Repository = "https://github.com/yourusername/teckochecker"
+
+[project.scripts]
+teckochecker = "app.cli.main:run"
+
+[tool.setuptools]
+packages = ["app", "app.cli", "app.api", "app.services", "app.integrations"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
