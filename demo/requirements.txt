@@ -1,8 +1,0 @@
-# OpenAI Batch Demo Requirements
-# Install with: pip install -r requirements.txt
-
-# HTTP requests library
-requests>=2.31.0
-
-# Environment variable management
-python-dotenv>=1.0.0

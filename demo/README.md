@@ -13,19 +13,25 @@ This demo script shows how to create and monitor OpenAI batch jobs using the Bat
 
 ## Setup
 
-1. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+### Prerequisites
 
-2. **Configure API key:**
-   ```bash
-   # Copy the example env file
-   cp .env.example .env
+Before running this demo, make sure you have **TeckoChecker properly set up** by following the [main setup guide](../docs/SETUP.md).
 
-   # Edit .env and add your OpenAI API key
-   # Get your key from: https://platform.openai.com/api-keys
-   ```
+This includes:
+- Python virtual environment activated
+- All dependencies installed
+- Main project working correctly
+
+### Configure Demo API Key
+
+```bash
+# From the demo directory
+cp .env.example .env
+
+# Edit .env and add your OpenAI API key
+# Get your key from: https://platform.openai.com/api-keys
+nano .env
+```
 
 ## Usage
 

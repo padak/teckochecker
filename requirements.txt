@@ -1,35 +1,35 @@
 # FastAPI and server
-fastapi
-uvicorn[standard]
-python-multipart
+fastapi==0.119.1
+uvicorn[standard]==0.38.0
+python-multipart==0.0.20
 
 # Database
-sqlalchemy
-alembic
+sqlalchemy==2.0.44
+alembic==1.17.0
 
 # Validation and settings
-pydantic>=2.0
-pydantic-settings
+pydantic==2.12.3
+pydantic-settings==2.11.0
 
 # Security and encryption
-cryptography
+cryptography==46.0.3
 
-# HTTP client
-httpx
-requests
-aiohttp
+# HTTP clients
+httpx==0.28.1           # CLI commands
+requests==2.32.5        # Demo scripts
+aiohttp==3.13.1         # Keboola client
 
 # OpenAI SDK
-openai
+openai==2.6.0
 
-# CLI (for future CLI implementation)
-typer
-rich
+# CLI
+typer==0.20.0
+rich==14.2.0
 
 # Utilities
-python-dotenv
+python-dotenv==1.1.1
 
 # Testing
-pytest
-pytest-asyncio
-pytest-cov
+pytest==8.4.2
+pytest-asyncio==1.2.0
+pytest-cov==7.0.0
