@@ -8,34 +8,33 @@ This module tests:
 - Error handling
 """
 
-import os
 import pytest
 from datetime import datetime
-from unittest.mock import patch, MagicMock
 
-from cryptography.fernet import Fernet
+from pydantic import ValidationError
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker
 
 from app.models import Secret, PollingJob, Base
 from app.schemas import SecretCreate
 from app.services.encryption import (
     EncryptionService,
     init_encryption_service,
-    get_encryption_service
+    get_encryption_service,
 )
 from app.services.secrets import (
     SecretManager,
     SecretNotFoundError,
     SecretValidationError,
     SecretAlreadyExistsError,
-    SecretInUseError
+    SecretInUseError,
 )
 
 
 # ============================================================================
 # Fixtures
 # ============================================================================
+
 
 @pytest.fixture
 def encryption_key():
@@ -53,10 +52,7 @@ def encryption_service(encryption_key):
 def db_session():
     """Create an in-memory SQLite database session for testing."""
     # Create in-memory SQLite database
-    engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False}
-    )
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
 
     # Create all tables
     Base.metadata.create_all(bind=engine)
@@ -84,16 +80,13 @@ def secret_manager(db_session, encryption_key):
 @pytest.fixture
 def sample_secret_data():
     """Sample secret creation data."""
-    return SecretCreate(
-        name="test-openai-key",
-        type="openai",
-        value="sk-test-key-12345"
-    )
+    return SecretCreate(name="test-openai-key", type="openai", value="sk-test-key-12345")
 
 
 # ============================================================================
 # EncryptionService Tests
 # ============================================================================
+
 
 class TestEncryptionService:
     """Test cases for EncryptionService."""
@@ -149,6 +142,7 @@ class TestEncryptionService:
         """Test getting encryption service before initialization."""
         # Reset the global instance
         import app.services.encryption as enc_module
+
         enc_module._encryption_service = None
 
         with pytest.raises(RuntimeError, match="not initialized"):
@@ -158,6 +152,7 @@ class TestEncryptionService:
 # ============================================================================
 # SecretManager Tests
 # ============================================================================
+
 
 class TestSecretManager:
     """Test cases for SecretManager."""
@@ -182,18 +177,12 @@ class TestSecretManager:
         assert response.type == sample_secret_data.type
         assert isinstance(response.created_at, datetime)
         # Value should not be in response
-        assert not hasattr(response, 'value') or response.value is None
+        assert not hasattr(response, "value") or response.value is None
 
     def test_create_secret_invalid_type(self, secret_manager):
         """Test creating secret with invalid type."""
-        invalid_data = SecretCreate(
-            name="test-secret",
-            type="invalid",
-            value="test-value"
-        )
-
-        with pytest.raises(SecretValidationError):
-            secret_manager.create_secret(invalid_data)
+        with pytest.raises(ValidationError):
+            invalid_data = SecretCreate(name="test-secret", type="invalid", value="test-value")
 
     def test_create_secret_duplicate_name(self, secret_manager, sample_secret_data):
         """Test that creating duplicate secret name fails."""
@@ -255,10 +244,7 @@ class TestSecretManager:
     def test_get_secret_by_name_with_decrypt(self, secret_manager, sample_secret_data):
         """Test retrieving and decrypting secret by name."""
         secret_manager.create_secret(sample_secret_data)
-        retrieved = secret_manager.get_secret_by_name(
-            sample_secret_data.name,
-            decrypt=True
-        )
+        retrieved = secret_manager.get_secret_by_name(sample_secret_data.name, decrypt=True)
 
         assert retrieved is not None
         assert retrieved.value == sample_secret_data.value
@@ -285,16 +271,8 @@ class TestSecretManager:
     def test_list_secrets(self, secret_manager):
         """Test listing all secrets."""
         # Create multiple secrets
-        secret_manager.create_secret(SecretCreate(
-            name="openai-1",
-            type="openai",
-            value="key1"
-        ))
-        secret_manager.create_secret(SecretCreate(
-            name="keboola-1",
-            type="keboola",
-            value="key2"
-        ))
+        secret_manager.create_secret(SecretCreate(name="openai-1", type="openai", value="key1"))
+        secret_manager.create_secret(SecretCreate(name="keboola-1", type="keboola", value="key2"))
 
         result = secret_manager.list_secrets()
 
@@ -304,16 +282,8 @@ class TestSecretManager:
     def test_list_secrets_by_type(self, secret_manager):
         """Test listing secrets filtered by type."""
         # Create secrets of different types
-        secret_manager.create_secret(SecretCreate(
-            name="openai-1",
-            type="openai",
-            value="key1"
-        ))
-        secret_manager.create_secret(SecretCreate(
-            name="keboola-1",
-            type="keboola",
-            value="key2"
-        ))
+        secret_manager.create_secret(SecretCreate(name="openai-1", type="openai", value="key1"))
+        secret_manager.create_secret(SecretCreate(name="keboola-1", type="keboola", value="key2"))
 
         # List only OpenAI secrets
         result = secret_manager.list_secrets(secret_type="openai")
@@ -325,11 +295,9 @@ class TestSecretManager:
         """Test listing secrets with pagination."""
         # Create multiple secrets
         for i in range(5):
-            secret_manager.create_secret(SecretCreate(
-                name=f"secret-{i}",
-                type="openai",
-                value=f"key{i}"
-            ))
+            secret_manager.create_secret(
+                SecretCreate(name=f"secret-{i}", type="openai", value=f"key{i}")
+            )
 
         # Get first page
         result1 = secret_manager.list_secrets(skip=0, limit=2)
@@ -389,8 +357,9 @@ class TestSecretManager:
             openai_secret_id=created.id,
             keboola_secret_id=created.id,
             keboola_stack_url="https://connection.keboola.com",
+            keboola_component_id="kds-team.app-custom-python",
             keboola_configuration_id="12345",
-            status="active"
+            status="active",
         )
         db_session.add(job)
         db_session.commit()
@@ -411,8 +380,9 @@ class TestSecretManager:
             openai_secret_id=created.id,
             keboola_secret_id=created.id,
             keboola_stack_url="https://connection.keboola.com",
+            keboola_component_id="kds-team.app-custom-python",
             keboola_configuration_id="12345",
-            status="active"
+            status="active",
         )
         db_session.add(job)
         db_session.commit()
@@ -435,21 +405,9 @@ class TestSecretManager:
     def test_get_secrets_by_type(self, secret_manager):
         """Test getting all secrets of a specific type."""
         # Create secrets of different types
-        secret_manager.create_secret(SecretCreate(
-            name="openai-1",
-            type="openai",
-            value="key1"
-        ))
-        secret_manager.create_secret(SecretCreate(
-            name="openai-2",
-            type="openai",
-            value="key2"
-        ))
-        secret_manager.create_secret(SecretCreate(
-            name="keboola-1",
-            type="keboola",
-            value="key3"
-        ))
+        secret_manager.create_secret(SecretCreate(name="openai-1", type="openai", value="key1"))
+        secret_manager.create_secret(SecretCreate(name="openai-2", type="openai", value="key2"))
+        secret_manager.create_secret(SecretCreate(name="keboola-1", type="keboola", value="key3"))
 
         openai_secrets = secret_manager.get_secrets_by_type("openai")
 
@@ -481,17 +439,14 @@ class TestSecretManager:
 # Integration Tests
 # ============================================================================
 
+
 class TestSecretsIntegration:
     """Integration tests for the complete secrets workflow."""
 
     def test_full_secret_lifecycle(self, secret_manager):
         """Test complete secret lifecycle: create, read, update, delete."""
         # Create
-        secret_data = SecretCreate(
-            name="lifecycle-test",
-            type="openai",
-            value="initial-value"
-        )
+        secret_data = SecretCreate(name="lifecycle-test", type="openai", value="initial-value")
         created = secret_manager.create_secret(secret_data)
         assert created.id > 0
 
@@ -514,18 +469,14 @@ class TestSecretsIntegration:
     def test_multiple_secret_types(self, secret_manager):
         """Test managing secrets of different types."""
         # Create OpenAI secret
-        openai_secret = secret_manager.create_secret(SecretCreate(
-            name="openai-prod",
-            type="openai",
-            value="sk-openai-key"
-        ))
+        openai_secret = secret_manager.create_secret(
+            SecretCreate(name="openai-prod", type="openai", value="sk-openai-key")
+        )
 
         # Create Keboola secret
-        keboola_secret = secret_manager.create_secret(SecretCreate(
-            name="keboola-prod",
-            type="keboola",
-            value="keboola-token"
-        ))
+        keboola_secret = secret_manager.create_secret(
+            SecretCreate(name="keboola-prod", type="keboola", value="keboola-token")
+        )
 
         # List all secrets
         all_secrets = secret_manager.list_secrets()

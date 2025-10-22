@@ -7,8 +7,7 @@ with proper error handling, retries, and exponential backoff.
 
 import asyncio
 import logging
-from typing import Optional, Dict, Any
-from datetime import datetime
+from typing import Dict, Any
 
 from openai import AsyncOpenAI, OpenAIError, APIError, RateLimitError, APIConnectionError
 
@@ -30,14 +29,14 @@ class OpenAIBatchClient:
 
     # Valid batch statuses from OpenAI API
     VALID_STATUSES = {
-        'validating',
-        'failed',
-        'in_progress',
-        'finalizing',
-        'completed',
-        'expired',
-        'cancelling',
-        'cancelled'
+        "validating",
+        "failed",
+        "in_progress",
+        "finalizing",
+        "completed",
+        "expired",
+        "cancelling",
+        "cancelled",
     }
 
     def __init__(self, api_key: str):
@@ -109,7 +108,11 @@ class OpenAIBatchClient:
 
             except APIError as e:
                 # For 4xx errors (except 429), don't retry
-                if hasattr(e, 'status_code') and 400 <= e.status_code < 500 and e.status_code != 429:
+                if (
+                    hasattr(e, "status_code")
+                    and 400 <= e.status_code < 500
+                    and e.status_code != 429
+                ):
                     logger.error(f"Client error for batch {batch_id}: {e}")
                     raise
 
@@ -133,11 +136,11 @@ class OpenAIBatchClient:
                 retry_delay = min(retry_delay * self.RETRY_MULTIPLIER, self.MAX_RETRY_DELAY)
 
         # All retries exhausted
-        logger.error(
-            f"All {self.MAX_RETRIES} retry attempts failed for batch {batch_id}"
-        )
-        raise last_exception if last_exception else OpenAIError(
-            "Failed to check batch status after all retries"
+        logger.error(f"All {self.MAX_RETRIES} retry attempts failed for batch {batch_id}")
+        raise (
+            last_exception
+            if last_exception
+            else OpenAIError("Failed to check batch status after all retries")
         )
 
     def _parse_batch_response(self, batch: Any) -> Dict[str, Any]:
@@ -154,49 +157,49 @@ class OpenAIBatchClient:
             ValueError: If response format is invalid
         """
         try:
-            status = batch.status.lower() if hasattr(batch, 'status') else 'unknown'
+            status = batch.status.lower() if hasattr(batch, "status") else "unknown"
 
             # Validate status
             if status not in self.VALID_STATUSES:
                 logger.warning(f"Unknown batch status: {status}")
 
             result = {
-                'status': status,
-                'batch_id': batch.id if hasattr(batch, 'id') else None,
-                'created_at': batch.created_at if hasattr(batch, 'created_at') else None,
-                'completed_at': getattr(batch, 'completed_at', None),
-                'failed_at': getattr(batch, 'failed_at', None),
-                'expired_at': getattr(batch, 'expired_at', None),
-                'cancelled_at': getattr(batch, 'cancelled_at', None),
-                'error_message': None,
-                'metadata': {},
+                "status": status,
+                "batch_id": batch.id if hasattr(batch, "id") else None,
+                "created_at": batch.created_at if hasattr(batch, "created_at") else None,
+                "completed_at": getattr(batch, "completed_at", None),
+                "failed_at": getattr(batch, "failed_at", None),
+                "expired_at": getattr(batch, "expired_at", None),
+                "cancelled_at": getattr(batch, "cancelled_at", None),
+                "error_message": None,
+                "metadata": {},
             }
 
             # Extract error information if available
-            if hasattr(batch, 'errors') and batch.errors:
+            if hasattr(batch, "errors") and batch.errors:
                 try:
                     # Errors could be a list or an object
                     if isinstance(batch.errors, list) and len(batch.errors) > 0:
-                        result['error_message'] = str(batch.errors[0])
+                        result["error_message"] = str(batch.errors[0])
                     else:
-                        result['error_message'] = str(batch.errors)
+                        result["error_message"] = str(batch.errors)
                 except Exception as e:
                     logger.warning(f"Could not parse batch errors: {e}")
 
             # Extract metadata if available
-            if hasattr(batch, 'metadata') and batch.metadata:
+            if hasattr(batch, "metadata") and batch.metadata:
                 try:
-                    result['metadata'] = dict(batch.metadata)
+                    result["metadata"] = dict(batch.metadata)
                 except Exception as e:
                     logger.warning(f"Could not parse batch metadata: {e}")
 
             # Add request counts if available
-            if hasattr(batch, 'request_counts'):
+            if hasattr(batch, "request_counts"):
                 try:
-                    result['request_counts'] = {
-                        'total': getattr(batch.request_counts, 'total', 0),
-                        'completed': getattr(batch.request_counts, 'completed', 0),
-                        'failed': getattr(batch.request_counts, 'failed', 0),
+                    result["request_counts"] = {
+                        "total": getattr(batch.request_counts, "total", 0),
+                        "completed": getattr(batch.request_counts, "completed", 0),
+                        "failed": getattr(batch.request_counts, "failed", 0),
                     }
                 except Exception as e:
                     logger.warning(f"Could not parse request counts: {e}")
@@ -217,7 +220,7 @@ class OpenAIBatchClient:
         Returns:
             True if status is terminal, False otherwise
         """
-        terminal_statuses = {'completed', 'failed', 'expired', 'cancelled'}
+        terminal_statuses = {"completed", "failed", "expired", "cancelled"}
         return status.lower() in terminal_statuses
 
     def is_success_status(self, status: str) -> bool:
@@ -230,7 +233,7 @@ class OpenAIBatchClient:
         Returns:
             True if batch completed successfully, False otherwise
         """
-        return status.lower() == 'completed'
+        return status.lower() == "completed"
 
     async def close(self):
         """

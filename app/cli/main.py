@@ -6,7 +6,7 @@ This module sets up the Typer application and registers all commands.
 import typer
 from typing import Optional
 
-from app.cli.utils import print_banner, console
+from app.cli.utils import console
 from app.cli import commands
 
 
@@ -56,14 +56,15 @@ def main(
 # Register command groups
 app.add_typer(commands.secret_app, name="secret")
 app.add_typer(commands.job_app, name="job")
+app.add_typer(commands.db_app, name="db")
 
 # Register standalone commands
 app.command(name="init")(commands.init)
+app.command(name="setup")(commands.setup)
 app.command(name="status")(commands.status)
 app.command(name="start")(commands.start)
 app.command(name="stop")(commands.stop)
-app.command(name="install-completion")(commands.install_completion)
-app.command(name="show-completion")(commands.show_completion)
+app.command(name="doctor")(commands.doctor)
 
 
 def run():

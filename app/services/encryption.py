@@ -11,7 +11,7 @@ class EncryptionService:
     def __init__(self, secret_key: str):
         """
         Initialize encryption service with a secret key.
-        
+
         Args:
             secret_key: Master secret key for encryption
         """
@@ -24,10 +24,10 @@ class EncryptionService:
     def encrypt(self, plaintext: str) -> str:
         """
         Encrypt a plaintext string.
-        
+
         Args:
             plaintext: The string to encrypt
-            
+
         Returns:
             Encrypted string (base64-encoded)
         """
@@ -37,10 +37,10 @@ class EncryptionService:
     def decrypt(self, ciphertext: str) -> str:
         """
         Decrypt an encrypted string.
-        
+
         Args:
             ciphertext: The encrypted string (base64-encoded)
-            
+
         Returns:
             Decrypted plaintext string
         """

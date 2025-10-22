@@ -17,6 +17,7 @@ graph TB
         subgraph "Interface Layer"
             CLI[CLI<br/>Typer]
             API[REST API<br/>FastAPI]
+            WEB[Web UI<br/>Vanilla JS]
         end
 
         subgraph "Service Layer"
@@ -36,6 +37,7 @@ graph TB
     end
 
     CLI --> API
+    WEB --> API
     API --> SECRETS
     API --> SCHEDULER
     API --> DB
@@ -64,7 +66,7 @@ graph TB
   - Automatic OpenAPI documentation
   - Request/response validation
   - Async request handling
-  - CORS support for future UI
+  - CORS support for web UI
 
 #### CLI (Typer)
 - **Purpose**: Command-line interface for administrators
@@ -74,6 +76,28 @@ graph TB
   - Auto-generated help
   - Progress indicators
   - Structured output
+
+#### Web UI (Vanilla JavaScript)
+- **Purpose**: Browser-based interface for job and secret management
+- **Technology**: Pure HTML5/CSS3/JavaScript (ES6+), no frameworks
+- **Size**: 1,290 lines of code total
+- **Architecture**:
+  - `static/`: Frontend assets
+    - `index.html`: Single-page application (240 lines)
+    - `css/terminal.css`: Terminal-style theme (448 lines)
+    - `js/api.js`: REST API client (133 lines)
+    - `js/app.js`: Application logic (440 lines)
+  - `routes.py`: FastAPI routes for serving web UI (29 lines)
+- **Key Features**:
+  - Terminal/hacker aesthetic matching CLI design
+  - Real-time monitoring with auto-refresh (5-second intervals)
+  - Keyboard shortcuts and responsive design
+  - No build process required (pure vanilla JavaScript)
+  - Five main tabs: Secrets, Jobs, Monitor, Logs, System Info
+  - Status indicators with animations (pulsing dots for active jobs)
+  - Modal-based forms for creating/editing resources
+  - Color-coded log messages (green/yellow/red)
+- **Access**: http://localhost:8000/web
 
 ### 2. Service Layer
 
@@ -201,8 +225,18 @@ teckochecker/
 │   │   ├── __init__.py
 │   │   ├── admin.py           # Admin endpoints
 │   │   ├── jobs.py            # Job management endpoints
-│   │   ├── system.py          # System endpoints
-│   │   └── dependencies.py    # Shared dependencies
+│   │   └── system.py          # System endpoints
+│   │
+│   ├── web/                   # Web UI (1,290 lines)
+│   │   ├── __init__.py
+│   │   ├── routes.py          # Web UI routes
+│   │   └── static/
+│   │       ├── index.html     # Single-page app
+│   │       ├── css/
+│   │       │   └── terminal.css  # Terminal theme
+│   │       └── js/
+│   │           ├── api.js     # API client
+│   │           └── app.js     # App logic
 │   │
 │   ├── services/
 │   │   ├── __init__.py
@@ -227,23 +261,24 @@ teckochecker/
 │   ├── integration/
 │   └── fixtures/
 │
-├── migrations/
-│   └── versions/
-│
 ├── docs/
 │   ├── prd.md
-│   └── architecture.md
+│   ├── SETUP.md
+│   ├── USER_GUIDE.md
+│   └── architecture/
+│       ├── README.md          # This file
+│       └── web-ui-design.md
 │
 ├── scripts/
-│   ├── setup.sh
-│   └── deploy.sh
+│   ├── init_db.py
+│   ├── verify_setup.py
+│   └── test_integration.py
 │
+├── Makefile                   # Development automation
 ├── requirements.txt
-├── requirements-dev.txt
 ├── .env.example
 ├── .gitignore
-├── Dockerfile
-├── docker-compose.yml
+├── teckochecker.py           # Main CLI entry point
 └── README.md
 ```
 
@@ -274,30 +309,60 @@ teckochecker/
 ### Local Development
 ```yaml
 Components:
-  - SQLite: Local file
+  - SQLite: Local file (teckochecker.db)
   - API: localhost:8000
-  - CLI: Direct execution
-  - Polling: Background thread
+  - Web UI: http://localhost:8000/web
+  - CLI: Direct execution via teckochecker.py
+  - Polling: Background asyncio task (starts with API)
+
+Setup Commands:
+  - make install      # Create venv and install dependencies
+  - make db-init      # Initialize database
+  - make run-api      # Start API server with auto-reload
+  - Access Web UI at http://localhost:8000/web
+  - Access API docs at http://localhost:8000/docs
 ```
 
 ### Production Deployment (Simple Server)
 ```yaml
 Components:
   - SQLite: /var/lib/teckochecker/db.sqlite
-  - API: Systemd service + Nginx reverse proxy
-  - CLI: System binary
-  - Polling: Systemd service
-  - Monitoring: Systemd journal
+  - API: Systemd service on port 8000
+  - Web UI: Served by API at /web endpoint
+  - CLI: System binary (teckochecker)
+  - Polling: Asyncio background task (same process as API)
+  - Reverse Proxy: Nginx (optional, for HTTPS)
+  - Monitoring: Systemd journal + web UI logs tab
+
+Deployment Steps:
+  1. Clone repository to server
+  2. Create virtual environment
+  3. Install dependencies from requirements.txt
+  4. Configure .env file with SECRET_KEY
+  5. Initialize database: python scripts/init_db.py
+  6. Create systemd service file
+  7. Enable and start service
+  8. Configure Nginx reverse proxy (optional)
 ```
 
-### Future: Docker Deployment
+### Docker Deployment (Optional)
 ```yaml
+Note: Docker commands are available in Makefile but Dockerfile
+      is not included in the repository.
+
+Available Commands:
+  - make docker-build   # Build Docker image
+  - make docker-run     # Run container on port 8000
+  - make docker-stop    # Stop and remove container
+  - make docker-logs    # View container logs
+  - make docker-shell   # Open bash shell in container
+
 Components:
-  - SQLite: Docker volume
-  - API: Container with Gunicorn
-  - CLI: Docker exec
-  - Polling: Separate container
-  - Monitoring: Docker logs
+  - SQLite: Docker volume for persistence
+  - API: Uvicorn server in container
+  - Web UI: Served by API
+  - CLI: Access via docker exec
+  - Polling: Same container as API
 ```
 
 ## Security Architecture
@@ -374,8 +439,76 @@ Circuit Breaker (Future):
 3. **Database Corruption**: Fallback to backup, alert admin
 4. **Out of Memory**: Graceful shutdown, systemd restart
 
+## Development Tools
+
+### Makefile Commands
+The project includes a comprehensive Makefile for development automation:
+
+```bash
+# Setup and Installation
+make install        # Create venv and install dependencies
+make dev           # Complete dev setup (install + env + db)
+make env           # Create .env from .env.example with generated SECRET_KEY
+
+# Database Management
+make db-init       # Initialize database
+make db-reset      # Reset database (drop and recreate)
+make db-show       # Show database schema
+make clean-db      # Remove database file
+
+# Running the Application
+make run-api       # Start API server with auto-reload (dev mode)
+make run-api-prod  # Start API in production mode
+make run-cli       # Show CLI help
+make start         # Alias for run-api
+make serve         # Alias for run-api
+
+# Testing
+make test          # Run all tests with coverage report
+make test-unit     # Run unit tests only
+make test-integration # Run integration tests
+make test-fast     # Run tests without coverage (faster)
+make test-api      # Run API test script
+
+# Code Quality
+make format        # Format code with black and ruff
+make format-check  # Check formatting without changes
+make lint          # Lint code with ruff
+make type-check    # Run type checking with mypy
+make check         # Run all quality checks
+
+# Docker (Optional)
+make docker-build  # Build Docker image
+make docker-run    # Run Docker container
+make docker-stop   # Stop and remove Docker container
+make docker-logs   # View Docker container logs
+make docker-shell  # Open shell in Docker container
+
+# Utilities
+make clean         # Remove venv, cache files, build artifacts
+make verify        # Verify setup configuration
+make shell         # Open Python shell with app context
+make deps-update   # Update all dependencies
+make deps-list     # List installed dependencies
+make help          # Show all available commands
+```
+
+### Quick Start with Makefile
+```bash
+# First time setup
+make dev           # Creates venv, .env, and initializes database
+
+# Daily development
+make run-api       # Start the API server
+
+# Before committing
+make format        # Format code
+make test          # Run tests
+make lint          # Check code quality
+```
+
 ---
 
-*Document Version: 1.0*
-*Last Updated: 2025-01-22*
-*Status: Ready for Implementation*
+*Document Version: 1.1*
+*Last Updated: 2025-10-22*
+*Status: MVP Complete with Web UI*

@@ -1,8 +1,8 @@
 """Jobs API endpoints for polling job management."""
 
 import logging
-from datetime import datetime, timedelta
-from typing import List, Optional
+from datetime import datetime, timezone
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
@@ -14,7 +14,7 @@ from app.schemas import (
     PollingJobResponse,
     PollingJobListResponse,
     PollingJobDetailResponse,
-    MessageResponse
+    MessageResponse,
 )
 
 
@@ -27,50 +27,49 @@ router = APIRouter()
     response_model=PollingJobResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new polling job",
-    description="Create a new job to poll OpenAI batch status and trigger Keboola job"
+    description="Create a new job to poll OpenAI batch status and trigger Keboola job",
 )
-async def create_job(
-    job_data: PollingJobCreate,
-    db: Session = Depends(get_db)
-):
+async def create_job(job_data: PollingJobCreate, db: Session = Depends(get_db)):
     """
     Create a new polling job.
-    
+
     Args:
         job_data: Job creation data
         db: Database session
-        
+
     Returns:
         Created job details
-        
+
     Raises:
         404 Not Found: If referenced secrets don't exist
     """
     # Validate that secrets exist
-    openai_secret = db.query(Secret).filter(
-        Secret.id == job_data.openai_secret_id,
-        Secret.type == "openai"
-    ).first()
-    
+    openai_secret = (
+        db.query(Secret)
+        .filter(Secret.id == job_data.openai_secret_id, Secret.type == "openai")
+        .first()
+    )
+
     if not openai_secret:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"OpenAI secret with ID {job_data.openai_secret_id} not found",
-            headers={"X-Error-Code": "1001"}
+            headers={"X-Error-Code": "1001"},
         )
-    
-    keboola_secret = db.query(Secret).filter(
-        Secret.id == job_data.keboola_secret_id,
-        Secret.type == "keboola"
-    ).first()
-    
+
+    keboola_secret = (
+        db.query(Secret)
+        .filter(Secret.id == job_data.keboola_secret_id, Secret.type == "keboola")
+        .first()
+    )
+
     if not keboola_secret:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Keboola secret with ID {job_data.keboola_secret_id} not found",
-            headers={"X-Error-Code": "1001"}
+            headers={"X-Error-Code": "1001"},
         )
-    
+
     # Create job
     job = PollingJob(
         name=job_data.name,
@@ -78,25 +77,30 @@ async def create_job(
         openai_secret_id=job_data.openai_secret_id,
         keboola_secret_id=job_data.keboola_secret_id,
         keboola_stack_url=job_data.keboola_stack_url,
+        keboola_component_id=job_data.keboola_component_id,
         keboola_configuration_id=job_data.keboola_configuration_id,
         poll_interval_seconds=job_data.poll_interval_seconds,
         status="active",
-        next_check_at=datetime.utcnow()
+        next_check_at=datetime.now(timezone.utc),
     )
-    
+
     db.add(job)
     db.commit()
     db.refresh(job)
-    
+
     # Create initial log entry
     log = PollingLog(
         job_id=job.id,
         status="created",
-        message=f"Job created with poll interval {job.poll_interval_seconds}s"
+        message=f"Job created with poll interval {job.poll_interval_seconds}s",
     )
     db.add(log)
     db.commit()
-    
+
+    # Add secret names to the response
+    job.openai_secret_name = openai_secret.name
+    job.keboola_secret_name = keboola_secret.name
+
     logger.info(f"Created polling job: {job.name} (ID: {job.id})")
     return job
 
@@ -105,100 +109,96 @@ async def create_job(
     "",
     response_model=PollingJobListResponse,
     summary="List all polling jobs",
-    description="Get a list of all polling jobs with optional status filtering"
+    description="Get a list of all polling jobs with optional status filtering",
 )
 async def list_jobs(
     status_filter: Optional[str] = Query(
-        None,
-        alias="status",
-        description="Filter jobs by status: active, paused, completed, failed"
+        None, alias="status", description="Filter jobs by status: active, paused, completed, failed"
     ),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     List all polling jobs.
-    
+
     Args:
         status_filter: Optional status filter
         db: Database session
-        
+
     Returns:
         List of jobs with total count
     """
     query = db.query(PollingJob)
-    
+
     if status_filter:
         query = query.filter(PollingJob.status == status_filter)
-    
+
     jobs = query.order_by(PollingJob.created_at.desc()).all()
-    
-    return PollingJobListResponse(
-        jobs=jobs,
-        total=len(jobs)
-    )
+
+    return PollingJobListResponse(jobs=jobs, total=len(jobs))
 
 
 @router.get(
     "/{job_id}",
     response_model=PollingJobDetailResponse,
     summary="Get job details",
-    description="Get detailed information about a specific job including logs"
+    description="Get detailed information about a specific job including logs",
 )
 async def get_job(
     job_id: int,
-    include_logs: bool = Query(
-        True,
-        description="Include job logs in response"
-    ),
-    log_limit: int = Query(
-        50,
-        ge=1,
-        le=500,
-        description="Maximum number of logs to return"
-    ),
-    db: Session = Depends(get_db)
+    include_logs: bool = Query(True, description="Include job logs in response"),
+    log_limit: int = Query(50, ge=1, le=500, description="Maximum number of logs to return"),
+    db: Session = Depends(get_db),
 ):
     """
     Get job details by ID.
-    
+
     Args:
         job_id: Job ID
         include_logs: Whether to include logs
         log_limit: Maximum number of logs to return
         db: Database session
-        
+
     Returns:
         Job details with optional logs
-        
+
     Raises:
         404 Not Found: If job doesn't exist
     """
     job = db.query(PollingJob).filter(PollingJob.id == job_id).first()
-    
+
     if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Job with ID {job_id} not found",
-            headers={"X-Error-Code": "1002"}
+            headers={"X-Error-Code": "1002"},
         )
-    
+
+    # Get secret names
+    openai_secret = db.query(Secret).filter(Secret.id == job.openai_secret_id).first()
+    keboola_secret = db.query(Secret).filter(Secret.id == job.keboola_secret_id).first()
+
     # Get logs if requested
     logs = []
     if include_logs:
-        logs = db.query(PollingLog).filter(
-            PollingLog.job_id == job_id
-        ).order_by(
-            PollingLog.created_at.desc()
-        ).limit(log_limit).all()
-    
+        logs = (
+            db.query(PollingLog)
+            .filter(PollingLog.job_id == job_id)
+            .order_by(PollingLog.created_at.desc())
+            .limit(log_limit)
+            .all()
+        )
+
     # Convert to response schema
     job_dict = {
         "id": job.id,
         "name": job.name,
         "batch_id": job.batch_id,
         "openai_secret_id": job.openai_secret_id,
+        "openai_secret_name": openai_secret.name if openai_secret else None,
         "keboola_secret_id": job.keboola_secret_id,
+        "keboola_secret_name": keboola_secret.name if keboola_secret else None,
         "keboola_stack_url": job.keboola_stack_url,
+        "keboola_component_id": job.keboola_component_id,
         "keboola_configuration_id": job.keboola_configuration_id,
         "poll_interval_seconds": job.poll_interval_seconds,
         "status": job.status,
@@ -206,9 +206,9 @@ async def get_job(
         "next_check_at": job.next_check_at,
         "created_at": job.created_at,
         "completed_at": job.completed_at,
-        "logs": logs
+        "logs": logs,
     }
-    
+
     return PollingJobDetailResponse(**job_dict)
 
 
@@ -216,55 +216,49 @@ async def get_job(
     "/{job_id}",
     response_model=PollingJobResponse,
     summary="Update a job",
-    description="Update job configuration (name, intervals, Keboola settings)"
+    description="Update job configuration (name, intervals, Keboola settings)",
 )
-async def update_job(
-    job_id: int,
-    job_update: PollingJobUpdate,
-    db: Session = Depends(get_db)
-):
+async def update_job(job_id: int, job_update: PollingJobUpdate, db: Session = Depends(get_db)):
     """
     Update a polling job.
-    
+
     Only allows updating certain fields. Cannot change batch_id or secrets.
-    
+
     Args:
         job_id: Job ID
         job_update: Fields to update
         db: Database session
-        
+
     Returns:
         Updated job details
-        
+
     Raises:
         404 Not Found: If job doesn't exist
     """
     job = db.query(PollingJob).filter(PollingJob.id == job_id).first()
-    
+
     if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Job with ID {job_id} not found",
-            headers={"X-Error-Code": "1002"}
+            headers={"X-Error-Code": "1002"},
         )
-    
+
     # Update fields
     update_data = job_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(job, field, value)
-    
+
     db.commit()
     db.refresh(job)
-    
+
     # Log the update
     log = PollingLog(
-        job_id=job.id,
-        status="updated",
-        message=f"Job updated: {', '.join(update_data.keys())}"
+        job_id=job.id, status="updated", message=f"Job updated: {', '.join(update_data.keys())}"
     )
     db.add(log)
     db.commit()
-    
+
     logger.info(f"Updated job {job_id}: {update_data}")
     return job
 
@@ -273,99 +267,86 @@ async def update_job(
     "/{job_id}",
     response_model=MessageResponse,
     summary="Delete a job",
-    description="Delete a polling job and its logs"
+    description="Delete a polling job and its logs",
 )
-async def delete_job(
-    job_id: int,
-    db: Session = Depends(get_db)
-):
+async def delete_job(job_id: int, db: Session = Depends(get_db)):
     """
     Delete a polling job.
-    
+
     This will also delete all associated logs due to CASCADE.
-    
+
     Args:
         job_id: Job ID to delete
         db: Database session
-        
+
     Returns:
         Success message
-        
+
     Raises:
         404 Not Found: If job doesn't exist
     """
     job = db.query(PollingJob).filter(PollingJob.id == job_id).first()
-    
+
     if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Job with ID {job_id} not found",
-            headers={"X-Error-Code": "1002"}
+            headers={"X-Error-Code": "1002"},
         )
-    
+
     job_name = job.name
     db.delete(job)
     db.commit()
-    
+
     logger.info(f"Deleted job: {job_name} (ID: {job_id})")
-    return MessageResponse(
-        message=f"Job '{job_name}' deleted successfully",
-        success=True
-    )
+    return MessageResponse(message=f"Job '{job_name}' deleted successfully", success=True)
 
 
 @router.post(
     "/{job_id}/pause",
     response_model=PollingJobResponse,
     summary="Pause a job",
-    description="Pause an active polling job"
+    description="Pause an active polling job",
 )
-async def pause_job(
-    job_id: int,
-    db: Session = Depends(get_db)
-):
+async def pause_job(job_id: int, db: Session = Depends(get_db)):
     """
     Pause a polling job.
-    
+
     Args:
         job_id: Job ID to pause
         db: Database session
-        
+
     Returns:
         Updated job details
-        
+
     Raises:
         404 Not Found: If job doesn't exist
         409 Conflict: If job is not active
     """
     job = db.query(PollingJob).filter(PollingJob.id == job_id).first()
-    
+
     if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Job with ID {job_id} not found",
-            headers={"X-Error-Code": "1002"}
+            headers={"X-Error-Code": "1002"},
         )
-    
+
     if job.status != "active":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot pause job with status '{job.status}'. Only active jobs can be paused."
+            detail=f"Cannot pause job with status '{job.status}'. Only active jobs can be paused.",
         )
-    
+
     job.status = "paused"
     db.commit()
     db.refresh(job)
-    
+
     # Log the pause
-    log = PollingLog(
-        job_id=job.id,
-        status="paused",
-        message="Job paused by user"
-    )
+    log = PollingLog(job_id=job.id, status="paused", message="Job paused by user")
     db.add(log)
     db.commit()
-    
+
     logger.info(f"Paused job: {job.name} (ID: {job_id})")
     return job
 
@@ -374,54 +355,47 @@ async def pause_job(
     "/{job_id}/resume",
     response_model=PollingJobResponse,
     summary="Resume a job",
-    description="Resume a paused polling job"
+    description="Resume a paused polling job",
 )
-async def resume_job(
-    job_id: int,
-    db: Session = Depends(get_db)
-):
+async def resume_job(job_id: int, db: Session = Depends(get_db)):
     """
     Resume a paused polling job.
-    
+
     Args:
         job_id: Job ID to resume
         db: Database session
-        
+
     Returns:
         Updated job details
-        
+
     Raises:
         404 Not Found: If job doesn't exist
         409 Conflict: If job is not paused
     """
     job = db.query(PollingJob).filter(PollingJob.id == job_id).first()
-    
+
     if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Job with ID {job_id} not found",
-            headers={"X-Error-Code": "1002"}
+            headers={"X-Error-Code": "1002"},
         )
-    
+
     if job.status != "paused":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot resume job with status '{job.status}'. Only paused jobs can be resumed."
+            detail=f"Cannot resume job with status '{job.status}'. Only paused jobs can be resumed.",
         )
-    
+
     job.status = "active"
-    job.next_check_at = datetime.utcnow()  # Schedule immediate check
+    job.next_check_at = datetime.now(timezone.utc)  # Schedule immediate check
     db.commit()
     db.refresh(job)
-    
+
     # Log the resume
-    log = PollingLog(
-        job_id=job.id,
-        status="resumed",
-        message="Job resumed by user"
-    )
+    log = PollingLog(job_id=job.id, status="resumed", message="Job resumed by user")
     db.add(log)
     db.commit()
-    
+
     logger.info(f"Resumed job: {job.name} (ID: {job_id})")
     return job

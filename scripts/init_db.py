@@ -4,13 +4,12 @@ Database initialization script for TeckoChecker.
 This script creates all database tables and optionally seeds test data.
 """
 import sys
-import os
 from pathlib import Path
 
 # Add parent directory to path to allow imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.database import init_db, drop_db, reset_db, get_db_manager
+from app.database import init_db, drop_db, get_db_manager
 from app.config import get_settings
 from cryptography.fernet import Fernet
 
@@ -26,13 +25,18 @@ def print_banner():
 def check_secret_key():
     """Check if SECRET_KEY is properly configured."""
     settings = get_settings()
-    if not settings.secret_key or settings.secret_key == "your-secret-key-for-encryption-change-this-in-production":
+    if (
+        not settings.secret_key
+        or settings.secret_key == "your-secret-key-for-encryption-change-this-in-production"
+    ):
         print("WARNING: SECRET_KEY is not properly configured!")
         print("Generate a new key with:")
-        print("  python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"")
+        print(
+            '  python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+        )
         print()
         response = input("Continue anyway? (y/N): ")
-        if response.lower() != 'y':
+        if response.lower() != "y":
             print("Aborted.")
             sys.exit(1)
 
@@ -66,7 +70,7 @@ def initialize_database(reset: bool = False):
     if reset:
         print("WARNING: This will delete all existing data!")
         response = input("Are you sure you want to reset the database? (yes/NO): ")
-        if response.lower() != 'yes':
+        if response.lower() != "yes":
             print("Aborted.")
             sys.exit(1)
 
@@ -107,21 +111,20 @@ def create_env_file_if_needed():
         print("Creating .env file from .env.example...")
 
         # Read .env.example
-        with open(env_example_path, 'r') as f:
+        with open(env_example_path, "r") as f:
             content = f.read()
 
         # Generate a new secret key
         secret_key = Fernet.generate_key().decode()
         content = content.replace(
-            "your-secret-key-for-encryption-change-this-in-production",
-            secret_key
+            "your-secret-key-for-encryption-change-this-in-production", secret_key
         )
 
         # Write to .env
-        with open(env_path, 'w') as f:
+        with open(env_path, "w") as f:
             f.write(content)
 
-        print(f"✓ Created .env file with generated SECRET_KEY")
+        print("✓ Created .env file with generated SECRET_KEY")
         print()
     elif not env_path.exists():
         print("WARNING: No .env file found!")
@@ -133,18 +136,14 @@ def main():
     """Main entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Initialize TeckoChecker database"
-    )
+    parser = argparse.ArgumentParser(description="Initialize TeckoChecker database")
     parser.add_argument(
-        "--reset",
-        action="store_true",
-        help="Reset database (drop all tables and recreate)"
+        "--reset", action="store_true", help="Reset database (drop all tables and recreate)"
     )
     parser.add_argument(
         "--create-env",
         action="store_true",
-        help="Create .env file from .env.example if it doesn't exist"
+        help="Create .env file from .env.example if it doesn't exist",
     )
 
     args = parser.parse_args()
@@ -163,6 +162,7 @@ def main():
     except Exception as e:
         print(f"\nERROR: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

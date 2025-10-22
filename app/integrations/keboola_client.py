@@ -8,7 +8,6 @@ with proper error handling, retries, and exponential backoff.
 import asyncio
 import logging
 from typing import Optional, Dict, Any
-from datetime import datetime
 import aiohttp
 
 logger = logging.getLogger(__name__)
@@ -40,13 +39,13 @@ class KeboolaClient:
             stack_url: Base URL of the Keboola stack (e.g., https://connection.keboola.com)
         """
         self.storage_api_token = storage_api_token
-        self.stack_url = stack_url.rstrip('/')  # Remove trailing slash if present
+        self.stack_url = stack_url.rstrip("/")  # Remove trailing slash if present
         self._token_preview = storage_api_token[:8] + "..." if len(storage_api_token) > 8 else "***"
 
     async def trigger_job(
         self,
         configuration_id: str,
-        component_id: Optional[str] = None,
+        component_id: str,
         tag: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
@@ -56,7 +55,7 @@ class KeboolaClient:
 
         Args:
             configuration_id: The ID of the configuration to run
-            component_id: Optional component ID (e.g., 'keboola.ex-db-mysql')
+            component_id: Component ID (e.g., 'kds-team.app-custom-python')
             tag: Optional tag to identify the job run
 
         Returns:
@@ -67,11 +66,13 @@ class KeboolaClient:
                 - created_time: Timestamp when job was created
 
         Raises:
-            ValueError: If configuration_id is invalid
+            ValueError: If configuration_id or component_id is invalid
             aiohttp.ClientError: If all retry attempts fail
         """
         if not configuration_id or not isinstance(configuration_id, str):
             raise ValueError(f"Invalid configuration_id: {configuration_id}")
+        if not component_id or not isinstance(component_id, str):
+            raise ValueError(f"Invalid component_id: {component_id}")
 
         logger.info(f"Triggering Keboola job for configuration: {configuration_id}")
 
@@ -144,14 +145,16 @@ class KeboolaClient:
         logger.error(
             f"All {self.MAX_RETRIES} retry attempts failed for configuration {configuration_id}"
         )
-        raise last_exception if last_exception else Exception(
-            "Failed to trigger Keboola job after all retries"
+        raise (
+            last_exception
+            if last_exception
+            else Exception("Failed to trigger Keboola job after all retries")
         )
 
     async def _execute_job_trigger(
         self,
         configuration_id: str,
-        component_id: Optional[str] = None,
+        component_id: str,
         tag: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
@@ -159,7 +162,7 @@ class KeboolaClient:
 
         Args:
             configuration_id: The ID of the configuration to run
-            component_id: Optional component ID
+            component_id: Component ID (required)
             tag: Optional tag to identify the job run
 
         Returns:
@@ -168,27 +171,27 @@ class KeboolaClient:
         Raises:
             aiohttp.ClientError: On HTTP errors
         """
-        # Build the API endpoint
-        # The endpoint pattern is: /v2/storage/jobs
-        # We'll use the queue API to trigger a job
-        endpoint = f"{self.stack_url}/v2/storage/jobs"
+        # Build the API endpoint - using queue API
+        # Extract the region from the stack_url (e.g., eu-central-1)
+        # From https://connection.eu-central-1.keboola.com to https://queue.eu-central-1.keboola.com
+        queue_url = self.stack_url.replace("connection", "queue")
+        endpoint = f"{queue_url}/jobs"
 
         # Prepare headers
         headers = {
-            'X-StorageApi-Token': self.storage_api_token,
-            'Content-Type': 'application/json',
+            "X-StorageApi-Token": self.storage_api_token,
+            "Content-Type": "application/json",
         }
 
-        # Prepare payload
+        # Prepare payload with the correct format
         payload = {
-            'config': configuration_id,
+            "mode": "run",
+            "component": component_id,
+            "config": configuration_id,
         }
-
-        if component_id:
-            payload['component'] = component_id
 
         if tag:
-            payload['tag'] = tag
+            payload["tag"] = tag
 
         # Create timeout
         timeout = aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT)
@@ -221,27 +224,27 @@ class KeboolaClient:
         """
         try:
             # Keboola API returns job information in the response
-            job_id = data.get('id')
+            job_id = data.get("id")
             if not job_id:
                 raise ValueError("No job ID in response")
 
             result = {
-                'job_id': str(job_id),
-                'status': data.get('status', 'created'),
-                'configuration_id': configuration_id,
-                'created_time': data.get('createdTime'),
-                'url': data.get('url'),
+                "job_id": str(job_id),
+                "status": data.get("status", "created"),
+                "configuration_id": configuration_id,
+                "created_time": data.get("createdTime"),
+                "url": data.get("url"),
             }
 
             # Add additional fields if available
-            if 'component' in data:
-                result['component_id'] = data['component']
+            if "component" in data:
+                result["component_id"] = data["component"]
 
-            if 'runId' in data:
-                result['run_id'] = data['runId']
+            if "runId" in data:
+                result["run_id"] = data["runId"]
 
-            if 'tag' in data:
-                result['tag'] = data['tag']
+            if "tag" in data:
+                result["tag"] = data["tag"]
 
             return result
 
@@ -271,7 +274,7 @@ class KeboolaClient:
         endpoint = f"{self.stack_url}/v2/storage/jobs/{job_id}"
 
         headers = {
-            'X-StorageApi-Token': self.storage_api_token,
+            "X-StorageApi-Token": self.storage_api_token,
         }
 
         timeout = aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT)
@@ -282,14 +285,14 @@ class KeboolaClient:
                 data = await response.json()
 
                 return {
-                    'job_id': str(data.get('id')),
-                    'status': data.get('status'),
-                    'created_time': data.get('createdTime'),
-                    'start_time': data.get('startTime'),
-                    'end_time': data.get('endTime'),
-                    'duration_seconds': data.get('durationSeconds'),
-                    'is_finished': data.get('isFinished', False),
-                    'url': data.get('url'),
+                    "job_id": str(data.get("id")),
+                    "status": data.get("status"),
+                    "created_time": data.get("createdTime"),
+                    "start_time": data.get("startTime"),
+                    "end_time": data.get("endTime"),
+                    "duration_seconds": data.get("durationSeconds"),
+                    "is_finished": data.get("isFinished", False),
+                    "url": data.get("url"),
                 }
 
     def is_job_finished(self, status: str) -> bool:
@@ -302,7 +305,7 @@ class KeboolaClient:
         Returns:
             True if job is finished, False otherwise
         """
-        finished_statuses = {'success', 'error', 'cancelled', 'terminated'}
+        finished_statuses = {"success", "error", "cancelled", "terminated"}
         return status.lower() in finished_statuses
 
     def is_job_successful(self, status: str) -> bool:
@@ -315,7 +318,7 @@ class KeboolaClient:
         Returns:
             True if job completed successfully, False otherwise
         """
-        return status.lower() == 'success'
+        return status.lower() == "success"
 
     def __repr__(self) -> str:
         """String representation with redacted API token."""

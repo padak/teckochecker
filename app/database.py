@@ -1,6 +1,7 @@
 """
 Database connection and session management using SQLAlchemy.
 """
+
 from typing import Generator
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
@@ -12,6 +13,7 @@ from app.config import get_settings
 
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models."""
+
     pass
 
 
@@ -25,7 +27,7 @@ if settings.database_url.startswith("sqlite"):
         settings.database_url,
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
-        echo=settings.log_level == "DEBUG"
+        echo=settings.log_level == "DEBUG",
     )
 
     # Enable foreign key support for SQLite
@@ -35,6 +37,7 @@ if settings.database_url.startswith("sqlite"):
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
+
 else:
     # PostgreSQL or other databases
     engine = create_engine(
@@ -42,15 +45,11 @@ else:
         pool_pre_ping=True,
         pool_size=5,
         max_overflow=10,
-        echo=settings.log_level == "DEBUG"
+        echo=settings.log_level == "DEBUG",
     )
 
 # Create session factory
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine
-)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -89,6 +88,7 @@ def drop_db() -> None:
     Use only for testing or complete reset.
     """
     from app import models  # noqa: F401
+
     Base.metadata.drop_all(bind=engine)
 
 
@@ -137,6 +137,7 @@ class DatabaseManager:
         """
         try:
             from sqlalchemy import text
+
             with self.engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
             return True

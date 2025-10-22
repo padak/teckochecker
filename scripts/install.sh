@@ -85,7 +85,7 @@ fi
 # Initialize database
 echo ""
 echo "Initializing database..."
-python scripts/init_db.py --no-prompt 2>/dev/null || true
+python teckochecker.py init --generate-env 2>/dev/null || true
 echo -e "${GREEN}✓${NC} Database initialized"
 
 # Verify installation

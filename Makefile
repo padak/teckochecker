@@ -67,6 +67,9 @@ clean: ## Remove virtual environment, cache files, and build artifacts
 	@rm -rf .mypy_cache
 	@rm -rf htmlcov
 	@rm -rf .coverage
+	@rm -rf .coverage.*
+	@rm -rf coverage.json
+	@rm -rf coverage.xml
 	@rm -rf dist
 	@rm -rf build
 	@rm -rf *.egg-info
@@ -77,63 +80,33 @@ clean: ## Remove virtual environment, cache files, and build artifacts
 	@find . -type f -name ".DS_Store" -delete 2>/dev/null || true
 	@echo "$(GREEN)Cleanup complete!$(NC)"
 
-.PHONY: clean-db
-clean-db: ## Remove database file
-	@echo "$(YELLOW)Removing database file...$(NC)"
-	@rm -f teckochecker.db
-	@echo "$(GREEN)Database file removed!$(NC)"
-
 .PHONY: run-api
-run-api: ## Start the FastAPI development server
+run-api: ## Start the FastAPI development server (polling service starts automatically)
 	@echo "$(BLUE)Starting TeckoChecker API...$(NC)"
 	@echo "$(YELLOW)API will be available at:$(NC)"
 	@echo "  - Main: http://localhost:$(API_PORT)"
 	@echo "  - Docs: http://localhost:$(API_PORT)/docs"
 	@echo "  - Health: http://localhost:$(API_PORT)/api/health"
 	@echo ""
+	@echo "$(YELLOW)Note: Polling service starts automatically with the API server$(NC)"
 	@echo "$(YELLOW)Press Ctrl+C to stop the server$(NC)"
 	@echo ""
-	@$(UVICORN) app.main:app --reload --host $(API_HOST) --port $(API_PORT)
+	@$(PYTHON_VENV) teckochecker.py start --reload
 
 .PHONY: run-api-prod
-run-api-prod: ## Start the FastAPI server in production mode (no reload)
+run-api-prod: ## Start the FastAPI server in production mode (polling service starts automatically)
 	@echo "$(BLUE)Starting TeckoChecker API (production mode)...$(NC)"
-	@$(UVICORN) app.main:app --host $(API_HOST) --port $(API_PORT)
-
-.PHONY: run-cli
-run-cli: ## Show CLI help
-	@echo "$(BLUE)TeckoChecker CLI$(NC)"
-	@$(PYTHON_VENV) teckochecker.py --help
+	@$(PYTHON_VENV) teckochecker.py start
 
 .PHONY: test
-test: ## Run all tests with coverage
+test: ## Run all tests
 	@echo "$(BLUE)Running all tests...$(NC)"
-	@$(PYTEST) $(TESTS_DIR) -v --cov=$(APP_DIR) --cov-report=html --cov-report=term-missing
-
-.PHONY: test-unit
-test-unit: ## Run unit tests only
-	@echo "$(BLUE)Running unit tests...$(NC)"
-	@$(PYTEST) $(TESTS_DIR)/unit -v
+	@$(PYTEST) $(TESTS_DIR) -v
 
 .PHONY: test-integration
 test-integration: ## Run integration tests
 	@echo "$(BLUE)Running integration tests...$(NC)"
-	@$(PYTEST) $(SCRIPTS_DIR)/test_integration.py -v
-
-.PHONY: test-api
-test-api: ## Run API test script
-	@echo "$(BLUE)Running API tests...$(NC)"
-	@./$(SCRIPTS_DIR)/test_api.sh
-
-.PHONY: test-fast
-test-fast: ## Run tests without coverage (faster)
-	@echo "$(BLUE)Running tests (fast mode)...$(NC)"
-	@$(PYTEST) $(TESTS_DIR) -v
-
-.PHONY: test-watch
-test-watch: ## Run tests in watch mode (requires pytest-watch)
-	@echo "$(BLUE)Running tests in watch mode...$(NC)"
-	@$(BIN)/ptw $(TESTS_DIR) -- -v
+	@$(PYTEST) $(TESTS_DIR)/integration -v
 
 .PHONY: format
 format: ## Format code with black and ruff
@@ -143,27 +116,11 @@ format: ## Format code with black and ruff
 	@$(RUFF) check --fix $(APP_DIR) $(TESTS_DIR) $(SCRIPTS_DIR) *.py || true
 	@echo "$(GREEN)Code formatting complete!$(NC)"
 
-.PHONY: format-check
-format-check: ## Check code formatting without making changes
-	@echo "$(BLUE)Checking code formatting...$(NC)"
-	@$(BLACK) --check $(APP_DIR) $(TESTS_DIR) $(SCRIPTS_DIR) *.py
-	@echo "$(GREEN)Format check complete!$(NC)"
-
 .PHONY: lint
 lint: ## Check code with ruff
 	@echo "$(BLUE)Linting code with ruff...$(NC)"
 	@$(RUFF) check $(APP_DIR) $(TESTS_DIR) $(SCRIPTS_DIR) *.py
 	@echo "$(GREEN)Linting complete!$(NC)"
-
-.PHONY: type-check
-type-check: ## Run type checking with mypy
-	@echo "$(BLUE)Running type checks...$(NC)"
-	@$(BIN)/mypy $(APP_DIR) || true
-	@echo "$(GREEN)Type checking complete!$(NC)"
-
-.PHONY: check
-check: format-check lint type-check ## Run all code quality checks
-	@echo "$(GREEN)All checks complete!$(NC)"
 
 .PHONY: db-init
 db-init: ## Initialize the database
@@ -171,49 +128,10 @@ db-init: ## Initialize the database
 	@$(PYTHON_VENV) $(SCRIPTS_DIR)/init_db.py
 	@echo "$(GREEN)Database initialized!$(NC)"
 
-.PHONY: db-reset
-db-reset: ## Reset the database (drop and recreate)
-	@echo "$(YELLOW)Resetting database...$(NC)"
-	@$(PYTHON_VENV) $(SCRIPTS_DIR)/init_db.py --reset
-	@echo "$(GREEN)Database reset complete!$(NC)"
-
 .PHONY: db-show
 db-show: ## Show database schema
 	@echo "$(BLUE)Database schema:$(NC)"
 	@$(PYTHON_VENV) $(SCRIPTS_DIR)/show_schema.py
-
-.PHONY: verify
-verify: ## Verify the setup
-	@echo "$(BLUE)Verifying setup...$(NC)"
-	@$(PYTHON_VENV) $(SCRIPTS_DIR)/verify_setup.py
-
-.PHONY: docker-build
-docker-build: ## Build Docker image
-	@echo "$(BLUE)Building Docker image...$(NC)"
-	@docker build -t teckochecker:latest .
-	@echo "$(GREEN)Docker image built!$(NC)"
-
-.PHONY: docker-run
-docker-run: ## Run Docker container
-	@echo "$(BLUE)Running Docker container...$(NC)"
-	@docker run -d -p $(API_PORT):$(API_PORT) --name teckochecker --env-file .env teckochecker:latest
-	@echo "$(GREEN)Docker container started!$(NC)"
-	@echo "$(YELLOW)API available at: http://localhost:$(API_PORT)$(NC)"
-
-.PHONY: docker-stop
-docker-stop: ## Stop Docker container
-	@echo "$(BLUE)Stopping Docker container...$(NC)"
-	@docker stop teckochecker || true
-	@docker rm teckochecker || true
-	@echo "$(GREEN)Docker container stopped!$(NC)"
-
-.PHONY: docker-logs
-docker-logs: ## Show Docker container logs
-	@docker logs -f teckochecker
-
-.PHONY: docker-shell
-docker-shell: ## Open shell in Docker container
-	@docker exec -it teckochecker /bin/bash
 
 .PHONY: env
 env: ## Create .env file from .env.example
@@ -236,45 +154,5 @@ env: ## Create .env file from .env.example
 dev: install env db-init ## Complete development setup (install + env + db)
 	@echo "$(GREEN)Development environment is ready!$(NC)"
 	@echo "$(YELLOW)Run 'make run-api' to start the server$(NC)"
-
-.PHONY: deps-update
-deps-update: ## Update dependencies
-	@echo "$(BLUE)Updating dependencies...$(NC)"
-	@$(PIP) install --upgrade pip
-	@$(PIP) install --upgrade -r requirements.txt
-	@echo "$(GREEN)Dependencies updated!$(NC)"
-
-.PHONY: deps-list
-deps-list: ## List installed dependencies
-	@$(PIP) list
-
-.PHONY: deps-tree
-deps-tree: ## Show dependency tree (requires pipdeptree)
-	@$(PIP) install pipdeptree 2>/dev/null || true
-	@$(BIN)/pipdeptree
-
-.PHONY: shell
-shell: ## Open Python shell with app context
-	@echo "$(BLUE)Opening Python shell...$(NC)"
-	@$(PYTHON_VENV) -i -c "import sys; sys.path.insert(0, '.'); from app import *; print('TeckoChecker context loaded')"
-
-.PHONY: requirements
-requirements: ## Generate requirements.txt from current environment
-	@echo "$(BLUE)Generating requirements.txt...$(NC)"
-	@$(PIP) freeze > requirements.txt
-	@echo "$(GREEN)requirements.txt updated!$(NC)"
-
-.PHONY: serve
-serve: run-api ## Alias for run-api
-
-.PHONY: start
-start: run-api ## Alias for run-api
-
-.PHONY: all
-all: clean install test lint ## Clean, install, test, and lint
-
-.PHONY: ci
-ci: install test lint ## Run CI pipeline (install, test, lint)
-	@echo "$(GREEN)CI pipeline complete!$(NC)"
 
 .DEFAULT_GOAL := help

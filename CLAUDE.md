@@ -45,77 +45,90 @@ The system follows a strict layered architecture with clear separation of concer
 ## Development Commands
 
 ```bash
-# Environment setup
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+# Quick setup
+make install                    # Setup environment and install dependencies
+python teckochecker.py init --generate-env  # Initialize database and .env
 
-# Database initialization
-cp .env.example .env
-# Edit .env and set SECRET_KEY or use:
-python scripts/init_db.py --create-env
+# Running
+make run-api                    # Start API server (polling starts automatically)
+python teckochecker.py --help   # CLI help
 
-# Run API server
-python -m uvicorn app.main:app --reload
+# Testing and Quality
+make test                       # Run all tests
+make test-coverage              # Run tests with coverage
+make format                     # Format and lint code
 
-# Run CLI (after pip install -e .)
-python teckochecker.py --help
-
-# Or directly without installation
-python -m app.cli.main --help
-
-# Run tests
-python -m pytest tests/unit/test_secrets.py -v
-
-# Integration test
-python scripts/test_integration.py
-
-# Code formatting
-black app/
-ruff check app/
+# For all available commands
+make help
 ```
 
-## Configuration Requirements
+## Configuration
 
-The application requires a `.env` file with:
-- `SECRET_KEY`: Required for Fernet encryption (32-byte hex string)
-- `DATABASE_URL`: SQLite by default, PostgreSQL-ready
-- `DEFAULT_POLL_INTERVAL`: Default 120 seconds
-- `MIN_POLL_INTERVAL`: Minimum 30 seconds
-- `MAX_POLL_INTERVAL`: Maximum 3600 seconds
+The application requires a `.env` file with `SECRET_KEY` (Fernet encryption for AES-256), `DATABASE_URL`, and polling interval settings. Use `python teckochecker.py init --generate-env` for automatic setup.
 
-## API and CLI Dual Interface
+## Interfaces
 
-The system provides identical functionality through both interfaces:
+**Dual Interface Design**: Both API and CLI call the same service layer methods.
 
-- **API Server**: Runs on port 8000, provides `/api/*` endpoints
-- **CLI**: Uses `teckochecker` command with subcommands for secrets and jobs
-- Both interfaces call the same service layer methods
+**CLI**: Subcommands: `secret`, `job`, `db`, `doctor`, `init`, `status`, `start`, `stop`
+- `doctor` and `db schema` commands work without API server running
 - API returns Pydantic schemas, CLI formats output with Rich
 
-## Polling Engine Workflow
+**API**: Port 8000, Swagger at `/docs`, full REST API for secrets and jobs management
 
-1. `PollingService.polling_loop()` runs continuously
-2. `JobScheduler.get_jobs_to_check()` returns jobs where `next_check_at <= now`
-3. Jobs processed concurrently with `asyncio.gather()` and semaphore limit
-4. For each job:
-   - Decrypt secrets via `SecretManager`
-   - Check OpenAI batch status
-   - If completed: trigger Keboola job
-   - If pending: reschedule with job's `poll_interval_seconds`
-   - If failed/expired: mark job as failed
+## Polling Engine
 
-## Error Handling Strategy
+Continuous asyncio loop checks OpenAI batch status and triggers Keboola jobs on completion. Jobs processed concurrently (max 10 via semaphore), with individual poll intervals and automatic rescheduling.
 
-- **API Errors**: Exponential backoff (1, 2, 4... max 60 seconds) for transient failures
-- **4xx Errors**: No retry except 429 (rate limit)
-- **Database Errors**: Rollback transaction, log error, continue polling
-- **Encryption Errors**: Fatal - stops processing for that job
-- **All errors logged**: to `polling_logs` table with job_id reference
+## Error Handling
 
-## Testing Approach
+Exponential backoff for API errors, no retry for 4xx (except 429). Database errors rollback and continue. All errors logged to `polling_logs` table.
 
-- Unit tests use in-memory SQLite (`:memory:`)
-- Integration test (`test_integration.py`) verifies full stack
-- Mock external APIs when testing polling logic
-- Test encryption with known key/value pairs
+## Testing
+
+- Unit tests use in-memory SQLite with mocked external APIs
+- Integration tests in `tests/integration/`
+- Coverage tracking with pytest-cov: `make test-coverage` and `make coverage-report`
+- Comprehensive test suite for core services, API endpoints, and polling engine
+
+## Important Implementation Notes
+
+### SQLAlchemy 2.0 Specifics
+- Raw SQL queries must use `text()` wrapper: `db.execute(text("SELECT 1"))`
+- Models use modern `Mapped` type hints
+- `mapped_column` instead of `Column`
+
+### CLI Architecture
+- Commands in `app/cli/commands.py` must NOT have `@typer.command()` decorators
+- They are registered in `app/cli/main.py` using `app.command(name="...")(function)`
+- Subcommands for secrets and jobs use their own Typer apps
+
+### API Response Format
+- List endpoints return objects with arrays, not direct arrays:
+  - Secrets: `{"secrets": [...], "total": 0}`
+  - Jobs: `{"jobs": [...], "total": 0}`
+- CLI must extract the array: `data.get("secrets", [])`
+
+### Project Structure
+```
+teckochecker/
+├── app/            # Core: api/, cli/, services/, integrations/, models.py, web/
+├── docs/           # PRD, architecture, user guides
+├── tests/          # Unit and integration tests
+├── Makefile        # Development automation
+└── teckochecker.py # CLI entry point
+```
+
+### Version
+Current version: 0.9.0
+
+## Known Limitations
+
+### CLI vs API
+- Most CLI commands require API server running (except `init`, `start`, `doctor`, `db schema`)
+- Polling service starts automatically with API server
+- Always start API first: `make run-api` or `python teckochecker.py start`
+
+### Deployment
+- Single-tenant, admin-only access (no multi-user auth in MVP)
+- SQLite database (PostgreSQL-ready for future scaling)

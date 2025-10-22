@@ -9,7 +9,7 @@ This module provides the SecretManager class that handles:
 """
 
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -21,21 +21,25 @@ from app.services.encryption import get_encryption_service
 
 class SecretNotFoundError(Exception):
     """Raised when a secret is not found."""
+
     pass
 
 
 class SecretValidationError(Exception):
     """Raised when secret validation fails."""
+
     pass
 
 
 class SecretAlreadyExistsError(Exception):
     """Raised when attempting to create a secret with a name that already exists."""
+
     pass
 
 
 class SecretInUseError(Exception):
     """Raised when attempting to delete a secret that is referenced by active jobs."""
+
     pass
 
 
@@ -106,7 +110,7 @@ class SecretManager:
                 name=secret_data.name,
                 type=secret_data.type,
                 value=encrypted_value,
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc),
             )
 
             # Add to database
@@ -129,11 +133,7 @@ class SecretManager:
             self.db.rollback()
             raise SQLAlchemyError(f"Failed to create secret: {str(e)}")
 
-    def get_secret_by_id(
-        self,
-        secret_id: int,
-        decrypt: bool = False
-    ) -> Optional[Secret]:
+    def get_secret_by_id(self, secret_id: int, decrypt: bool = False) -> Optional[Secret]:
         """
         Get a secret by ID.
 
@@ -152,11 +152,7 @@ class SecretManager:
 
         return secret
 
-    def get_secret_by_name(
-        self,
-        name: str,
-        decrypt: bool = False
-    ) -> Optional[Secret]:
+    def get_secret_by_name(self, name: str, decrypt: bool = False) -> Optional[Secret]:
         """
         Get a secret by name.
 
@@ -197,10 +193,7 @@ class SecretManager:
         return self.encryption_service.decrypt(secret.value)
 
     def list_secrets(
-        self,
-        secret_type: Optional[str] = None,
-        skip: int = 0,
-        limit: int = 100
+        self, secret_type: Optional[str] = None, skip: int = 0, limit: int = 100
     ) -> SecretListResponse:
         """
         List all secrets (without their values).
@@ -235,16 +228,9 @@ class SecretManager:
         # Convert to response models
         secret_responses = [SecretResponse.model_validate(s) for s in secrets]
 
-        return SecretListResponse(
-            secrets=secret_responses,
-            total=total
-        )
+        return SecretListResponse(secrets=secret_responses, total=total)
 
-    def update_secret(
-        self,
-        secret_id: int,
-        new_value: str
-    ) -> SecretResponse:
+    def update_secret(self, secret_id: int, new_value: str) -> SecretResponse:
         """
         Update a secret's value.
 
@@ -304,9 +290,7 @@ class SecretManager:
         # Check if secret is in use (unless force is True)
         if not force:
             # Check if secret is referenced by any jobs
-            jobs_using_secret = (
-                len(secret.jobs_as_openai) + len(secret.jobs_as_keboola)
-            )
+            jobs_using_secret = len(secret.openai_jobs) + len(secret.keboola_jobs)
 
             if jobs_using_secret > 0:
                 raise SecretInUseError(
@@ -352,11 +336,7 @@ class SecretManager:
 
         return self.db.query(Secret).filter(Secret.type == secret_type).all()
 
-    def validate_secret_reference(
-        self,
-        secret_id: int,
-        expected_type: str
-    ) -> None:
+    def validate_secret_reference(self, secret_id: int, expected_type: str) -> None:
         """
         Validate that a secret exists and has the expected type.
 

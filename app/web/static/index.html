@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TeckoChecker - Polling Orchestration</title>
+    <link rel="stylesheet" href="/web/static/css/terminal.css">
+</head>
+<body>
+    <div class="container">
+        <!-- ASCII Art Header -->
+        <div class="ascii-header">
+ ╔╦╗┌─┐┌─┐┬┌─┌─┐╔═╗┬ ┬┌─┐┌─┐┬┌─┌─┐┬─┐
+  ║ ├┤ │  ├┴┐│ │║  ├─┤├┤ │  ├┴┐├┤ ├┬┘
+  ╩ └─┘└─┘┴ ┴└─┘╚═╝┴ ┴└─┘└─┘┴ ┴└─┘┴└─
+        </div>
+        <div class="tagline">Polling orchestration for async workflows</div>
+
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs">
+            <button class="nav-tab active" data-tab="secrets">Secrets</button>
+            <button class="nav-tab" data-tab="jobs">Jobs</button>
+            <button class="nav-tab" data-tab="monitor">Monitor</button>
+            <button class="nav-tab" data-tab="logs">Logs</button>
+            <button class="nav-tab" data-tab="system">System</button>
+        </nav>
+
+        <!-- Secrets Tab -->
+        <div id="secrets" class="tab-content active">
+            <div class="terminal-window">
+                <div class="terminal-header">
+                    <span class="terminal-title">> secrets management</span>
+                </div>
+                <div class="terminal-body">
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="app.showAddSecretModal()">+ Add Secret</button>
+                        <button class="btn" onclick="app.loadSecrets()">↻ Refresh</button>
+                    </div>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Type</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="secrets-table"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Jobs Tab -->
+        <div id="jobs" class="tab-content">
+            <div class="terminal-window">
+                <div class="terminal-header">
+                    <span class="terminal-title">> polling jobs</span>
+                </div>
+                <div class="terminal-body">
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="app.showAddJobModal()">+ Create Job</button>
+                        <button class="btn" onclick="app.loadJobs()">↻ Refresh</button>
+                    </div>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Batch ID</th>
+                                <th>Status</th>
+                                <th>Next Check</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="jobs-table"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Monitor Tab -->
+        <div id="monitor" class="tab-content">
+            <div class="terminal-window">
+                <div class="terminal-header">
+                    <span class="terminal-title">> system monitor</span>
+                </div>
+                <div class="terminal-body">
+                    <div class="btn-group">
+                        <button class="btn" onclick="app.loadStats()">↻ Refresh</button>
+                    </div>
+                    <div id="stats-display">
+                        <h3 class="text-muted mb-10">> system status</h3>
+                        <div id="system-status"></div>
+
+                        <h3 class="text-muted mb-10 mt-20">> recent activity</h3>
+                        <div class="log-viewer" id="recent-activity"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logs Tab -->
+        <div id="logs" class="tab-content">
+            <div class="terminal-window">
+                <div class="terminal-header">
+                    <span class="terminal-title">> polling logs</span>
+                </div>
+                <div class="terminal-body">
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="app.toggleAutoRefresh()">
+                            <span id="auto-refresh-btn">⏸ Auto-refresh</span>
+                        </button>
+                        <button class="btn" onclick="app.loadLogs()">↻ Refresh</button>
+                        <button class="btn" onclick="app.clearLogs()">✕ Clear</button>
+                    </div>
+                    <div class="log-viewer" id="logs-display"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Tab -->
+        <div id="system" class="tab-content">
+            <div class="terminal-window">
+                <div class="terminal-header">
+                    <span class="terminal-title">> system information</span>
+                </div>
+                <div class="terminal-body">
+                    <div class="btn-group">
+                        <button class="btn" onclick="app.loadHealth()">↻ Health Check</button>
+                    </div>
+                    <div id="health-display"></div>
+
+                    <h3 class="text-muted mb-10 mt-20">> api endpoints</h3>
+                    <div class="text-dim">
+                        <pre>GET  /api/health              Health check
+GET  /api/stats               System statistics
+GET  /api/admin/secrets       List secrets
+POST /api/admin/secrets       Add secret
+GET  /api/jobs                List jobs
+POST /api/jobs                Create job
+POST /api/jobs/{id}/pause     Pause job
+POST /api/jobs/{id}/resume    Resume job</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Command Line (Optional) -->
+        <div class="command-input">
+            <span class="command-prompt">system@teckochecker:~$</span>
+            <input type="text" placeholder="Type 'help' for commands..." id="command-line">
+        </div>
+    </div>
+
+    <!-- Add Secret Modal -->
+    <div id="add-secret-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">+ Add New Secret</h2>
+            </div>
+            <form id="add-secret-form">
+                <div class="form-group">
+                    <label class="form-label">Name</label>
+                    <input type="text" class="form-control" name="name" placeholder="e.g., openai-prod" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Type</label>
+                    <select class="form-control" name="type" required>
+                        <option value="openai">OpenAI</option>
+                        <option value="keboola">Keboola</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Value (API Key/Token)</label>
+                    <input type="password" class="form-control" name="value" placeholder="Enter secret value" required>
+                </div>
+                <div class="btn-group">
+                    <button type="submit" class="btn btn-primary">Add Secret</button>
+                    <button type="button" class="btn" onclick="app.closeModal('add-secret-modal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Job Modal -->
+    <div id="add-job-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">+ Create Polling Job</h2>
+            </div>
+            <form id="add-job-form">
+                <div class="form-group">
+                    <label class="form-label">Job Name</label>
+                    <input type="text" class="form-control" name="name" placeholder="My Batch Job" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">OpenAI Batch ID</label>
+                    <input type="text" class="form-control" name="batch_id" placeholder="batch_abc123" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">OpenAI Secret</label>
+                    <select class="form-control" name="openai_secret_id" id="openai-secret-select" required></select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Keboola Secret</label>
+                    <select class="form-control" name="keboola_secret_id" id="keboola-secret-select" required></select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Keboola Stack URL</label>
+                    <input type="text" class="form-control" name="keboola_stack_url"
+                           placeholder="https://connection.eu-central-1.keboola.com" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Keboola Component ID</label>
+                    <input type="text" class="form-control" name="keboola_component_id"
+                           placeholder="kds-team.app-custom-python" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Keboola Configuration ID</label>
+                    <input type="text" class="form-control" name="keboola_configuration_id"
+                           placeholder="123456" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Poll Interval (seconds)</label>
+                    <input type="number" class="form-control" name="poll_interval_seconds"
+                           value="120" min="30" max="3600" required>
+                </div>
+                <div class="btn-group">
+                    <button type="submit" class="btn btn-primary">Create Job</button>
+                    <button type="button" class="btn" onclick="app.closeModal('add-job-modal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/web/static/js/api.js"></script>
+    <script src="/web/static/js/app.js"></script>
+</body>
+</html>

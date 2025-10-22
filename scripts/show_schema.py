@@ -8,7 +8,6 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.database import Base
 from app.models import Secret, PollingJob, PollingLog
 from sqlalchemy import inspect
 
@@ -20,12 +19,12 @@ def print_table_schema(model):
 
     print(f"\n{'=' * 70}")
     print(f"Table: {table_name}")
-    print('=' * 70)
+    print("=" * 70)
 
     # Print columns
     print("\nColumns:")
     print(f"{'Name':<30} {'Type':<20} {'Nullable':<10} {'Default'}")
-    print('-' * 70)
+    print("-" * 70)
 
     for column in inspector.columns:
         col_name = column.name
@@ -42,19 +41,19 @@ def print_table_schema(model):
             print(f"  - {rel.key} -> {rel.mapper.class_.__name__}")
 
     # Print indexes
-    if hasattr(model, '__table_args__'):
+    if hasattr(model, "__table_args__"):
         table_args = model.__table_args__
         if table_args:
             print("\nIndexes:")
             for arg in table_args:
-                if hasattr(arg, 'name'):
+                if hasattr(arg, "name"):
                     columns = [col.name for col in arg.columns]
                     print(f"  - {arg.name}: {', '.join(columns)}")
 
     # Print documentation
     if model.__doc__:
         print("\nDescription:")
-        doc_lines = [line.strip() for line in model.__doc__.strip().split('\n') if line.strip()]
+        doc_lines = [line.strip() for line in model.__doc__.strip().split("\n") if line.strip()]
         for line in doc_lines[:3]:  # First 3 lines only
             print(f"  {line}")
 
@@ -73,7 +72,8 @@ def main():
     print("\n" + "=" * 70)
     print("SQL Schema (SQLite)")
     print("=" * 70)
-    print("""
+    print(
+        """
 CREATE TABLE secrets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL,
@@ -119,7 +119,8 @@ CREATE INDEX idx_polling_logs_job_id ON polling_logs(job_id);
 CREATE INDEX idx_polling_logs_created_at ON polling_logs(created_at);
 CREATE INDEX idx_polling_logs_job_created ON polling_logs(job_id, created_at);
 CREATE INDEX idx_polling_logs_status ON polling_logs(status);
-""")
+"""
+    )
 
     print("\n" + "=" * 70)
     print("Valid Values")

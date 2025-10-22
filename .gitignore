@@ -24,6 +24,8 @@ pip-log.txt
 pip-delete-this-directory.txt
 .pytest_cache/
 .coverage
+.coveragerc
+coverage.json
 htmlcov/
 *.egg-info/
 dist/
@@ -51,6 +53,12 @@ coverage/
 .nyc_output/
 .tox/
 .pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.json
+coverage.xml
+demo/batch_output*
 
 # Alembic
 alembic.ini

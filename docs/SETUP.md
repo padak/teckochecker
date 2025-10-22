@@ -15,11 +15,11 @@ This guide walks you through setting up TeckoChecker from scratch.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/teckochecker.git
+git clone https://github.com/padak/teckochecker.git
 cd teckochecker
 
 # Create virtual environment
-python -m venv venv
+python3 -m venv venv
 
 # Activate virtual environment
 # On macOS/Linux:
@@ -34,37 +34,56 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Configure Environment
+### 3. Initialize Database and Environment
 
+**Recommended - Interactive Setup:**
 ```bash
-# Create .env file from template
+# Run the interactive setup wizard
+# This will guide you through:
+# 1. Creating .env file with auto-generated SECRET_KEY
+# 2. Initializing database tables
+python teckochecker.py setup
+```
+
+**Alternative - Automatic Setup (non-interactive):**
+```bash
+# This command will:
+# 1. Create .env file from .env.example (if it doesn't exist)
+# 2. Auto-generate a secure SECRET_KEY using Fernet encryption
+# 3. Initialize the database tables
+python teckochecker.py init --generate-env
+```
+
+**Advanced - Manual Setup:**
+```bash
+# Step 1: Create .env file
 cp .env.example .env
 
-# Generate a secure SECRET_KEY
+# Step 2: Generate a secure SECRET_KEY
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 
-# Edit .env and paste the generated key
+# Step 3: Edit .env and paste the generated key
 nano .env  # or use your preferred editor
+
+# Step 4: Initialize database
+python teckochecker.py init
 ```
 
-**Important:** Replace the `SECRET_KEY` value in `.env` with the generated key.
+**What is SECRET_KEY?**
+The `SECRET_KEY` is used for AES-256 encryption of API keys and tokens stored in the database. It's generated using the Fernet encryption library (part of cryptography package). This ensures that your OpenAI and Keboola credentials are stored securely and cannot be read without the correct key.
 
-### 4. Initialize Database
+**Important Security Notes:**
+- Never commit your `.env` file to git (it's already in `.gitignore`)
+- Keep the same `SECRET_KEY` across runs - changing it will make existing secrets unreadable
+- Back up your `SECRET_KEY` securely - losing it means losing access to all stored secrets
+- Use different `SECRET_KEY` values for development and production environments
 
-```bash
-# Method 1: Using the init script (recommended)
-python scripts/init_db.py
-
-# Method 2: With automatic .env creation
-python scripts/init_db.py --create-env
-
-# Method 3: Reset existing database (WARNING: deletes all data)
-python scripts/init_db.py --reset
-```
-
-### 5. Verify Setup
+### 4. Verify Setup
 
 ```bash
+# Make sure virtual environment is activated
+source venv/bin/activate
+
 # Run verification script
 python scripts/verify_setup.py
 
@@ -152,6 +171,7 @@ Tracks polling jobs and their configuration.
 | openai_secret_id         | INTEGER   | FK to secrets table            |
 | keboola_secret_id        | INTEGER   | FK to secrets table            |
 | keboola_stack_url        | TEXT      | Keboola stack URL              |
+| keboola_component_id     | TEXT      | Keboola component ID           |
 | keboola_configuration_id | TEXT      | Keboola config ID to trigger   |
 | poll_interval_seconds    | INTEGER   | Polling interval               |
 | status                   | TEXT      | 'active', 'paused', 'completed', 'failed' |
@@ -176,22 +196,27 @@ Records polling events and status changes.
 ### Development Mode
 
 ```bash
-# Start the FastAPI server with auto-reload
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# Make sure virtual environment is activated
+source venv/bin/activate
+
+# Start the FastAPI server with auto-reload (polling service starts automatically)
+python teckochecker.py start --reload
 ```
 
 Access the API documentation:
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
 
-### Production Mode (Coming Soon)
+Note: The polling service starts automatically with the API server.
+
+### Production Mode
 
 ```bash
-# Start the server
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+# Make sure virtual environment is activated
+source venv/bin/activate
 
-# Or using the CLI
-teckochecker start --daemon
+# Start the server as daemon
+python teckochecker.py start --daemon
 ```
 
 ## Troubleshooting
@@ -200,27 +225,40 @@ teckochecker start --daemon
 
 **Solution:**
 ```bash
-python scripts/init_db.py
+# Initialize database only (assumes .env already exists)
+python teckochecker.py init
+
+# Or run full setup if .env also needs to be created
+python teckochecker.py setup
 ```
 
 ### Issue: "SECRET_KEY not set" or "Invalid SECRET_KEY"
 
 **Solution:**
 ```bash
-# Generate a new key
+# Method 1: Generate a new key manually
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-
-# Update .env file with the generated key
+# Then update .env file with the generated key:
 nano .env
+
+# Method 2: Use automatic setup (recreates .env with new SECRET_KEY)
+# WARNING: This will overwrite your existing .env file
+python teckochecker.py init --generate-env
+
+# Method 3: Use interactive setup wizard
+python teckochecker.py setup
 ```
+
+**Note:** The SECRET_KEY must be a valid Fernet key (44 characters, base64-encoded). If you change the SECRET_KEY, all previously encrypted secrets will become unreadable.
 
 ### Issue: "Cannot import app.models" or "Cannot import app.database"
 
 **Solution:**
-This is likely a circular import issue. Make sure you're running scripts from the project root:
+This is likely a circular import issue. Make sure you're running commands from the project root:
 ```bash
 cd /path/to/teckochecker
-python scripts/init_db.py
+source venv/bin/activate
+python teckochecker.py init
 ```
 
 ### Issue: Database file permission denied
@@ -247,28 +285,39 @@ pip install -r requirements.txt
 
 ## Next Steps
 
-After setup is complete:
+After setup is complete, see the [User Guide](USER_GUIDE.md) for detailed instructions on:
 
-1. **Add Secrets**: Store your OpenAI and Keboola API credentials
-   ```bash
-   teckochecker secret add --name "openai-prod" --type openai
-   ```
+1. **Managing Secrets**: How to add and manage your OpenAI and Keboola API credentials
+2. **Creating Polling Jobs**: Complete examples with all required parameters including component IDs
+3. **Running the Service**: Starting and managing the polling service
 
-2. **Create Polling Jobs**: Set up jobs to monitor
-   ```bash
-   teckochecker job create --name "My Job" --batch-id "batch_123" ...
-   ```
+Quick example to get started:
+```bash
+# Make sure virtual environment is activated
+source venv/bin/activate
 
-3. **Start Polling**: Begin monitoring jobs
-   ```bash
-   teckochecker start
-   ```
+# Add your API credentials
+python teckochecker.py secret add --name "openai-prod" --type openai
+python teckochecker.py secret add --name "keboola-prod" --type keboola
+
+# Start the API server (polling service starts automatically)
+python teckochecker.py start --reload
+
+# In another terminal (also activate venv first), check system status
+source venv/bin/activate
+python teckochecker.py status
+```
+
+For full command reference and examples, please refer to the [User Guide](USER_GUIDE.md).
 
 ## Development Setup
 
 For development, install additional tools:
 
 ```bash
+# Make sure virtual environment is activated
+source venv/bin/activate
+
 # Install development dependencies
 pip install pytest black ruff mypy
 
@@ -296,7 +345,7 @@ mypy app/
 
 ## Support
 
-- **Documentation**: See [docs/prd.md](prd.md) and [docs/architecture.md](architecture.md)
+- **Documentation**: See [prd.md](prd.md) and [architecture/](architecture/)
 - **Issues**: Report bugs on GitHub Issues
 - **Questions**: Open a discussion on GitHub Discussions
 

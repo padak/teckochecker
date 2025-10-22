@@ -196,9 +196,10 @@ def print_job_details(job: Dict[str, Any]) -> None:
 [bold]Status:[/bold] {format_status(job['status'])}
 
 [bold cyan]Configuration[/bold cyan]
-[bold]OpenAI Secret:[/bold] {job.get('openai_secret_name', 'N/A')} (ID: {job.get('openai_secret_id', 'N/A')})
-[bold]Keboola Secret:[/bold] {job.get('keboola_secret_name', 'N/A')} (ID: {job.get('keboola_secret_id', 'N/A')})
+[bold]OpenAI Secret:[/bold] {job.get('openai_secret_name') or 'N/A'} (ID: {job.get('openai_secret_id', 'N/A')})
+[bold]Keboola Secret:[/bold] {job.get('keboola_secret_name') or 'N/A'} (ID: {job.get('keboola_secret_id', 'N/A')})
 [bold]Keboola Stack:[/bold] {job.get('keboola_stack_url', 'N/A')}
+[bold]Component ID:[/bold] {job.get('keboola_component_id', 'N/A')}
 [bold]Config ID:[/bold] {job.get('keboola_configuration_id', 'N/A')}
 [bold]Poll Interval:[/bold] {job.get('poll_interval_seconds', 0)} seconds
 
@@ -307,7 +308,7 @@ def truncate_string(s: str, length: int) -> str:
     """
     if len(s) <= length:
         return s
-    return s[:length-3] + "..."
+    return s[: length - 3] + "..."
 
 
 def show_progress(description: str):

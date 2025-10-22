@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 # Secret Schemas
 # ============================================================================
 
+
 class SecretCreate(BaseModel):
     """Schema for creating a new secret."""
 
@@ -47,6 +48,7 @@ class SecretListResponse(BaseModel):
 # Polling Job Schemas
 # ============================================================================
 
+
 class PollingJobCreate(BaseModel):
     """Schema for creating a new polling job."""
 
@@ -55,12 +57,10 @@ class PollingJobCreate(BaseModel):
     openai_secret_id: int = Field(..., gt=0, description="ID of OpenAI secret")
     keboola_secret_id: int = Field(..., gt=0, description="ID of Keboola secret")
     keboola_stack_url: str = Field(..., min_length=1, description="Keboola stack URL")
+    keboola_component_id: str = Field(..., min_length=1, description="Keboola component ID")
     keboola_configuration_id: str = Field(..., min_length=1, description="Keboola configuration ID")
     poll_interval_seconds: int = Field(
-        default=120,
-        ge=30,
-        le=3600,
-        description="Polling interval in seconds (30-3600)"
+        default=120, ge=30, le=3600, description="Polling interval in seconds (30-3600)"
     )
 
 
@@ -69,6 +69,7 @@ class PollingJobUpdate(BaseModel):
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     keboola_stack_url: Optional[str] = Field(None, min_length=1)
+    keboola_component_id: Optional[str] = Field(None, min_length=1)
     keboola_configuration_id: Optional[str] = Field(None, min_length=1)
     poll_interval_seconds: Optional[int] = Field(None, ge=30, le=3600)
 
@@ -80,8 +81,11 @@ class PollingJobResponse(BaseModel):
     name: str
     batch_id: str
     openai_secret_id: int
+    openai_secret_name: Optional[str] = None
     keboola_secret_id: int
+    keboola_secret_name: Optional[str] = None
     keboola_stack_url: str
+    keboola_component_id: str
     keboola_configuration_id: str
     poll_interval_seconds: int
     status: str
@@ -104,6 +108,7 @@ class PollingJobListResponse(BaseModel):
 # Polling Log Schemas
 # ============================================================================
 
+
 class PollingLogResponse(BaseModel):
     """Schema for polling log response."""
 
@@ -125,6 +130,7 @@ class PollingJobDetailResponse(PollingJobResponse):
 # ============================================================================
 # System Schemas
 # ============================================================================
+
 
 class HealthResponse(BaseModel):
     """Schema for health check response."""
@@ -151,6 +157,7 @@ class StatsResponse(BaseModel):
 # ============================================================================
 # Error Schemas
 # ============================================================================
+
 
 class ErrorResponse(BaseModel):
     """Schema for error responses."""
@@ -179,6 +186,7 @@ class ValidationErrorResponse(BaseModel):
 # ============================================================================
 # Generic Response Schemas
 # ============================================================================
+
 
 class MessageResponse(BaseModel):
     """Schema for simple message responses."""

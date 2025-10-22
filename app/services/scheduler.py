@@ -7,7 +7,7 @@ and when the next check should occur based on individual polling intervals.
 
 import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 
@@ -50,18 +50,19 @@ class JobScheduler:
         from app.models import PollingJob  # Import here to avoid circular dependency
 
         try:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
 
             # Query for active jobs that need checking
-            query = self.db.query(PollingJob).filter(
-                and_(
-                    PollingJob.status == 'active',
-                    or_(
-                        PollingJob.next_check_at.is_(None),
-                        PollingJob.next_check_at <= now
+            query = (
+                self.db.query(PollingJob)
+                .filter(
+                    and_(
+                        PollingJob.status == "active",
+                        or_(PollingJob.next_check_at.is_(None), PollingJob.next_check_at <= now),
                     )
                 )
-            ).order_by(PollingJob.next_check_at.asc().nullsfirst())
+                .order_by(PollingJob.next_check_at.asc().nullsfirst())
+            )
 
             if limit:
                 query = query.limit(limit)
@@ -112,7 +113,7 @@ class JobScheduler:
                 raise ValueError(f"Invalid poll interval: {interval}")
 
             # Calculate next check time
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             next_check = now + timedelta(seconds=interval)
 
             # Update job record
@@ -121,8 +122,7 @@ class JobScheduler:
             self.db.commit()
 
             logger.info(
-                f"Scheduled job {job_id} for next check at {next_check} "
-                f"(interval: {interval}s)"
+                f"Scheduled job {job_id} for next check at {next_check} " f"(interval: {interval}s)"
             )
 
             return next_check
@@ -151,7 +151,7 @@ class JobScheduler:
         """
         from app.models import PollingJob  # Import here to avoid circular dependency
 
-        valid_statuses = {'active', 'paused', 'completed', 'failed'}
+        valid_statuses = {"active", "paused", "completed", "failed"}
 
         if status not in valid_statuses:
             raise ValueError(f"Invalid status: {status}. Must be one of {valid_statuses}")
@@ -169,8 +169,8 @@ class JobScheduler:
                 job.completed_at = completed_at
 
             # If marking as completed or failed, set completed_at if not already set
-            if status in {'completed', 'failed'} and not job.completed_at:
-                job.completed_at = datetime.utcnow()
+            if status in {"completed", "failed"} and not job.completed_at:
+                job.completed_at = datetime.now(timezone.utc)
 
             self.db.commit()
 
@@ -193,16 +193,20 @@ class JobScheduler:
         from app.models import PollingJob  # Import here to avoid circular dependency
 
         try:
-            result = self.db.query(PollingJob.next_check_at).filter(
-                and_(
-                    PollingJob.status == 'active',
-                    PollingJob.next_check_at.isnot(None)
-                )
-            ).order_by(PollingJob.next_check_at.asc()).first()
+            result = (
+                self.db.query(PollingJob.next_check_at)
+                .filter(and_(PollingJob.status == "active", PollingJob.next_check_at.isnot(None)))
+                .order_by(PollingJob.next_check_at.asc())
+                .first()
+            )
 
             if result and result[0]:
-                logger.debug(f"Next scheduled check at: {result[0]}")
-                return result[0]
+                next_time = result[0]
+                # Ensure timezone-aware (SQLite returns naive datetimes)
+                if next_time.tzinfo is None:
+                    next_time = next_time.replace(tzinfo=timezone.utc)
+                logger.debug(f"Next scheduled check at: {next_time}")
+                return next_time
 
             logger.debug("No scheduled checks found")
             return None
@@ -221,9 +225,7 @@ class JobScheduler:
         from app.models import PollingJob  # Import here to avoid circular dependency
 
         try:
-            count = self.db.query(PollingJob).filter(
-                PollingJob.status == 'active'
-            ).count()
+            count = self.db.query(PollingJob).filter(PollingJob.status == "active").count()
 
             logger.debug(f"Active jobs count: {count}")
             return count
@@ -251,17 +253,17 @@ class JobScheduler:
                 return None
 
             return {
-                'id': job.id,
-                'name': job.name,
-                'batch_id': job.batch_id,
-                'status': job.status,
-                'poll_interval_seconds': job.poll_interval_seconds,
-                'last_check_at': job.last_check_at,
-                'next_check_at': job.next_check_at,
-                'created_at': job.created_at,
-                'completed_at': job.completed_at,
-                'keboola_stack_url': job.keboola_stack_url,
-                'keboola_configuration_id': job.keboola_configuration_id,
+                "id": job.id,
+                "name": job.name,
+                "batch_id": job.batch_id,
+                "status": job.status,
+                "poll_interval_seconds": job.poll_interval_seconds,
+                "last_check_at": job.last_check_at,
+                "next_check_at": job.next_check_at,
+                "created_at": job.created_at,
+                "completed_at": job.completed_at,
+                "keboola_stack_url": job.keboola_stack_url,
+                "keboola_configuration_id": job.keboola_configuration_id,
             }
 
         except Exception as e:
@@ -278,7 +280,7 @@ class JobScheduler:
         Raises:
             ValueError: If job not found
         """
-        self.update_job_status(job_id, 'paused')
+        self.update_job_status(job_id, "paused")
         logger.info(f"Paused job {job_id}")
 
     def resume_job(self, job_id: int, reset_schedule: bool = True) -> None:
@@ -300,11 +302,11 @@ class JobScheduler:
             if not job:
                 raise ValueError(f"Job {job_id} not found")
 
-            job.status = 'active'
+            job.status = "active"
 
             if reset_schedule:
                 # Set next check to now for immediate execution
-                job.next_check_at = datetime.utcnow()
+                job.next_check_at = datetime.now(timezone.utc)
 
             self.db.commit()
 
@@ -328,14 +330,18 @@ class JobScheduler:
         from app.models import PollingJob  # Import here to avoid circular dependency
 
         try:
-            cutoff_date = datetime.utcnow() - timedelta(days=days_old)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_old)
 
-            result = self.db.query(PollingJob).filter(
-                and_(
-                    PollingJob.status.in_(['completed', 'failed']),
-                    PollingJob.completed_at < cutoff_date
+            result = (
+                self.db.query(PollingJob)
+                .filter(
+                    and_(
+                        PollingJob.status.in_(["completed", "failed"]),
+                        PollingJob.completed_at < cutoff_date,
+                    )
                 )
-            ).delete()
+                .delete()
+            )
 
             self.db.commit()
 

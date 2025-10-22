@@ -8,10 +8,9 @@ Keboola jobs upon completion. Handles concurrent polling with asyncio.
 import asyncio
 import logging
 from typing import Optional, Dict, Any, List
-from datetime import datetime, timedelta
-from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from contextlib import contextmanager
 
-from sqlalchemy.orm import Session
 
 from app.integrations.openai_client import OpenAIBatchClient
 from app.integrations.keboola_client import KeboolaClient
@@ -157,19 +156,17 @@ class PollingService:
             # Check batch status
             status_result = await openai_client.check_batch_status(batch_id)
 
-            logger.info(
-                f"Job {job_id}: Batch {batch_id} status is '{status_result['status']}'"
-            )
+            logger.info(f"Job {job_id}: Batch {batch_id} status is '{status_result['status']}'")
 
             # Log the status check
             await self._log_status_check(job_id, status_result)
 
             # Handle based on status
-            if openai_client.is_success_status(status_result['status']):
+            if openai_client.is_success_status(status_result["status"]):
                 # Batch completed successfully - trigger Keboola job
                 await self._handle_batch_completion(job, status_result)
 
-            elif openai_client.is_terminal_status(status_result['status']):
+            elif openai_client.is_terminal_status(status_result["status"]):
                 # Batch reached terminal state (failed, expired, cancelled)
                 await self._handle_batch_terminal(job, status_result)
 
@@ -178,10 +175,7 @@ class PollingService:
                 await self._reschedule_job(job)
 
         except Exception as e:
-            logger.error(
-                f"Error processing job {job_id} for batch {batch_id}: {e}",
-                exc_info=True
-            )
+            logger.error(f"Error processing job {job_id} for batch {batch_id}: {e}", exc_info=True)
             await self._handle_job_error(job, str(e))
 
     async def _handle_batch_completion(self, job: Any, status_result: Dict[str, Any]) -> None:
@@ -204,7 +198,8 @@ class PollingService:
             # Trigger the Keboola job
             trigger_result = await keboola_client.trigger_job(
                 configuration_id=job.keboola_configuration_id,
-                tag=f"teckochecker-{job_id}"
+                component_id=job.keboola_component_id,
+                tag=f"teckochecker-{job_id}",
             )
 
             logger.info(
@@ -212,26 +207,17 @@ class PollingService:
             )
 
             # Log the action
-            await self._log_action(
-                job_id,
-                action='keboola_triggered',
-                result=trigger_result
-            )
+            await self._log_action(job_id, action="keboola_triggered", result=trigger_result)
 
             # Mark job as completed
             with self._create_db_session() as db:
                 scheduler = JobScheduler(db)
                 scheduler.update_job_status(
-                    job_id,
-                    status='completed',
-                    completed_at=datetime.utcnow()
+                    job_id, status="completed", completed_at=datetime.now(timezone.utc)
                 )
 
         except Exception as e:
-            logger.error(
-                f"Job {job_id}: Error triggering Keboola job: {e}",
-                exc_info=True
-            )
+            logger.error(f"Job {job_id}: Error triggering Keboola job: {e}", exc_info=True)
             await self._handle_job_error(job, f"Keboola trigger failed: {e}")
 
     async def _handle_batch_terminal(self, job: Any, status_result: Dict[str, Any]) -> None:
@@ -244,26 +230,20 @@ class PollingService:
         """
         job_id = job.id
         batch_id = job.batch_id
-        status = status_result['status']
+        status = status_result["status"]
 
-        logger.warning(
-            f"Job {job_id}: Batch {batch_id} reached terminal status '{status}'"
-        )
+        logger.warning(f"Job {job_id}: Batch {batch_id} reached terminal status '{status}'")
 
         # Log the terminal state
         await self._log_status_check(
-            job_id,
-            status_result,
-            message=f"Batch reached terminal status: {status}"
+            job_id, status_result, message=f"Batch reached terminal status: {status}"
         )
 
         # Mark job as failed
         with self._create_db_session() as db:
             scheduler = JobScheduler(db)
             scheduler.update_job_status(
-                job_id,
-                status='failed',
-                completed_at=datetime.utcnow()
+                job_id, status="failed", completed_at=datetime.now(timezone.utc)
             )
 
     async def _reschedule_job(self, job: Any) -> None:
@@ -350,10 +330,7 @@ class PollingService:
 
         # Create new client
         api_token = await self._get_secret_value(secret_id)
-        client = KeboolaClient(
-            storage_api_token=api_token,
-            stack_url=job.keboola_stack_url
-        )
+        client = KeboolaClient(storage_api_token=api_token, stack_url=job.keboola_stack_url)
 
         # Cache for reuse
         self._keboola_clients[secret_id] = client
@@ -374,7 +351,7 @@ class PollingService:
             ValueError: If secret not found
         """
         from app.models import Secret  # Import here to avoid circular dependency
-        from app.services.encryption import decrypt_value
+        from app.services.encryption import get_encryption_service
 
         with self._create_db_session() as db:
             secret = db.query(Secret).filter(Secret.id == secret_id).first()
@@ -383,15 +360,13 @@ class PollingService:
                 raise ValueError(f"Secret {secret_id} not found")
 
             # Decrypt the secret value
-            decrypted_value = decrypt_value(secret.value)
+            encryption_service = get_encryption_service()
+            decrypted_value = encryption_service.decrypt(secret.value)
 
             return decrypted_value
 
     async def _log_status_check(
-        self,
-        job_id: int,
-        status_result: Dict[str, Any],
-        message: Optional[str] = None
+        self, job_id: int, status_result: Dict[str, Any], message: Optional[str] = None
     ) -> None:
         """
         Log a status check to the database.
@@ -409,9 +384,9 @@ class PollingService:
 
                 log_entry = PollingLog(
                     job_id=job_id,
-                    status=status_result.get('status'),
+                    status=status_result.get("status"),
                     message=log_message,
-                    created_at=datetime.utcnow()
+                    created_at=datetime.now(timezone.utc),
                 )
 
                 db.add(log_entry)
@@ -420,12 +395,7 @@ class PollingService:
         except Exception as e:
             logger.error(f"Error logging status check for job {job_id}: {e}")
 
-    async def _log_action(
-        self,
-        job_id: int,
-        action: str,
-        result: Dict[str, Any]
-    ) -> None:
+    async def _log_action(self, job_id: int, action: str, result: Dict[str, Any]) -> None:
         """
         Log an action (like Keboola trigger) to the database.
 
@@ -444,7 +414,7 @@ class PollingService:
                     job_id=job_id,
                     status=action,
                     message=message,
-                    created_at=datetime.utcnow()
+                    created_at=datetime.now(timezone.utc),
                 )
 
                 db.add(log_entry)
@@ -467,9 +437,9 @@ class PollingService:
             with self._create_db_session() as db:
                 log_entry = PollingLog(
                     job_id=job_id,
-                    status='error',
+                    status="error",
                     message=error_message,
-                    created_at=datetime.utcnow()
+                    created_at=datetime.now(timezone.utc),
                 )
 
                 db.add(log_entry)
@@ -495,7 +465,7 @@ class PollingService:
             return self.DEFAULT_SLEEP_SECONDS
 
         # Calculate time until next check
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         time_until_next = (next_check_time - now).total_seconds()
 
         # Don't sleep for negative time or too long
@@ -513,10 +483,7 @@ class PollingService:
             duration: Sleep duration in seconds
         """
         try:
-            await asyncio.wait_for(
-                self._shutdown_event.wait(),
-                timeout=duration
-            )
+            await asyncio.wait_for(self._shutdown_event.wait(), timeout=duration)
         except asyncio.TimeoutError:
             # Normal timeout - continue polling
             pass
@@ -535,7 +502,7 @@ class PollingService:
         self._openai_clients.clear()
         self._keboola_clients.clear()
 
-    @asynccontextmanager
+    @contextmanager
     def _create_db_session(self):
         """
         Context manager for database sessions.
@@ -543,11 +510,17 @@ class PollingService:
         Yields:
             Database session
         """
-        session = self.db_session_factory()
+        session_generator = self.db_session_factory()
+        session = next(session_generator)
         try:
             yield session
         finally:
-            session.close()
+            try:
+                next(session_generator)
+            except StopIteration:
+                pass
+            finally:
+                session.close()
 
     def shutdown(self) -> None:
         """

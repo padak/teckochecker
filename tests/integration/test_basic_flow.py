@@ -17,6 +17,7 @@ from app.models import Secret, PollingJob
 from app.services.encryption import init_encryption_service
 from app.services.secrets import SecretManager
 
+
 def test_basic_flow():
     """Test basic application flow"""
     print("🧪 Running TeckoChecker Integration Test...")
@@ -49,6 +50,7 @@ def test_basic_flow():
     print("\n✓ Testing encryption service...")
     init_encryption_service(settings.secret_key)
     from app.services.encryption import get_encryption_service
+
     enc_service = get_encryption_service()
 
     test_data = "Hello, TeckoChecker!"
@@ -65,11 +67,8 @@ def test_basic_flow():
 
         # Create a test secret
         from app.schemas import SecretCreate
-        secret_data = SecretCreate(
-            name="test-openai",
-            type="openai",
-            value="sk-test-key-123456"
-        )
+
+        secret_data = SecretCreate(name="test-openai", type="openai", value="sk-test-key-123456")
 
         # Check if secret already exists and delete it
         existing = secret_manager.get_secret_by_name("test-openai")
@@ -89,12 +88,12 @@ def test_basic_flow():
         # List secrets
         secrets_response = secret_manager.list_secrets()
         # Try to get the count properly
-        if hasattr(secrets_response, 'secrets'):
+        if hasattr(secrets_response, "secrets"):
             secret_count = len(secrets_response.secrets)
-        elif hasattr(secrets_response, 'items'):
+        elif hasattr(secrets_response, "items"):
             secret_count = len(secrets_response.items)
         else:
-            secret_count = secrets_response.total if hasattr(secrets_response, 'total') else 0
+            secret_count = secrets_response.total if hasattr(secrets_response, "total") else 0
         print(f"  Total secrets in database: {secret_count}")
 
         # Cleanup
@@ -114,12 +113,13 @@ def test_basic_flow():
     print("✅ All integration tests passed!")
     print("=" * 50)
     print("\n📋 System Status:")
-    print(f"  • Configuration: OK")
-    print(f"  • Database: OK")
-    print(f"  • Encryption: OK")
-    print(f"  • Secret Management: OK")
-    print(f"  • Models: OK")
+    print("  • Configuration: OK")
+    print("  • Database: OK")
+    print("  • Encryption: OK")
+    print("  • Secret Management: OK")
+    print("  • Models: OK")
     print("\n🚀 TeckoChecker is ready to use!")
+
 
 if __name__ == "__main__":
     try:
@@ -127,5 +127,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ Test failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

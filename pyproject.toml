@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "teckochecker"
-version = "0.1.0"
+version = "0.9.0"
 description = "Polling orchestration for async workflows - Monitor OpenAI batch jobs and trigger Keboola workflows"
 readme = "README.md"
 requires-python = ">=3.11"

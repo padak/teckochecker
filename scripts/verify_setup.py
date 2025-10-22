@@ -4,7 +4,6 @@ Verification script to test TeckoChecker setup.
 Checks configuration, database connection, and models.
 """
 import sys
-import os
 from pathlib import Path
 
 # Add parent directory to path
@@ -35,7 +34,9 @@ def check_environment():
         print("WARNING: .env file not found!")
         print("  Run: cp .env.example .env")
         print("  Then generate a SECRET_KEY with:")
-        print('  python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"')
+        print(
+            '  python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+        )
         return False
 
     print("✓ .env file exists")
@@ -43,8 +44,9 @@ def check_environment():
     # Try to load settings
     try:
         from app.config import get_settings
+
         settings = get_settings()
-        print(f"✓ Configuration loaded successfully")
+        print("✓ Configuration loaded successfully")
         print(f"  - Database URL: {settings.database_url}")
         print(f"  - Log Level: {settings.log_level}")
         print(f"  - API Port: {settings.api_port}")
@@ -68,7 +70,7 @@ def check_database():
     print_header("Checking Database")
 
     try:
-        from app.database import get_db_manager, init_db
+        from app.database import get_db_manager
         from app.config import get_settings
 
         settings = get_settings()
@@ -103,6 +105,7 @@ def check_database():
     except Exception as e:
         print(f"ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -112,7 +115,6 @@ def check_models():
     print_header("Checking Models")
 
     try:
-        from app.models import Secret, PollingJob, PollingLog
         from app.models import SECRET_TYPES, JOB_STATUSES, LOG_STATUSES
 
         print("✓ Secret model imported")
@@ -128,6 +130,7 @@ def check_models():
     except Exception as e:
         print(f"ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -172,21 +175,21 @@ def test_encryption():
 
         # Generate a test key
         key = Fernet.generate_key()
-        print(f"✓ Generated test encryption key")
+        print("✓ Generated test encryption key")
 
         # Test encryption
         f = Fernet(key)
         test_data = b"test secret value"
         encrypted = f.encrypt(test_data)
-        print(f"✓ Encryption successful")
+        print("✓ Encryption successful")
 
         # Test decryption
         decrypted = f.decrypt(encrypted)
-        print(f"✓ Decryption successful")
+        print("✓ Decryption successful")
 
         # Verify
         if decrypted == test_data:
-            print(f"✓ Data integrity verified")
+            print("✓ Data integrity verified")
             return True
         else:
             print("ERROR: Decrypted data does not match!")
@@ -226,7 +229,8 @@ def main():
         print("  All checks passed! Setup is complete.")
         print("=" * 60)
         print("\nNext steps:")
-        print("  1. Start the API: uvicorn app.main:app --reload")
+        print("  1. Start the API: python teckochecker.py start --reload")
+        print("     (Note: polling service starts automatically)")
         print("  2. Add secrets: teckochecker secret add ...")
         print("  3. Create jobs: teckochecker job create ...")
         return 0

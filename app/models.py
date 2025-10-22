@@ -2,16 +2,10 @@
 SQLAlchemy models for TeckoChecker.
 Defines the database schema for secrets, polling jobs, and polling logs.
 """
-from datetime import datetime
+
+from datetime import datetime, timezone
 from typing import Optional
-from sqlalchemy import (
-    Integer,
-    String,
-    Text,
-    DateTime,
-    ForeignKey,
-    Index
-)
+from sqlalchemy import Integer, String, Text, DateTime, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -28,6 +22,7 @@ class Secret(Base):
         value: Encrypted secret value
         created_at: Timestamp when secret was created
     """
+
     __tablename__ = "secrets"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -35,9 +30,7 @@ class Secret(Base):
     type: Mapped[str] = mapped_column(String(50), nullable=False)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.utcnow
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
     )
 
     # Relationships
@@ -45,13 +38,13 @@ class Secret(Base):
         "PollingJob",
         back_populates="openai_secret",
         foreign_keys="PollingJob.openai_secret_id",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
     keboola_jobs: Mapped[list["PollingJob"]] = relationship(
         "PollingJob",
         back_populates="keboola_secret",
         foreign_keys="PollingJob.keboola_secret_id",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:
@@ -69,6 +62,7 @@ class PollingJob(Base):
         openai_secret_id: Foreign key to OpenAI secret
         keboola_secret_id: Foreign key to Keboola secret
         keboola_stack_url: Keboola Connection stack URL
+        keboola_component_id: Keboola component ID (e.g., 'kds-team.app-custom-python')
         keboola_configuration_id: Keboola configuration to trigger
         poll_interval_seconds: How often to check status (in seconds)
         status: Current job status ('active', 'paused', 'completed', 'failed')
@@ -77,6 +71,7 @@ class PollingJob(Base):
         created_at: When the job was created
         completed_at: When the job was completed (if applicable)
     """
+
     __tablename__ = "polling_jobs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -85,57 +80,43 @@ class PollingJob(Base):
 
     # Foreign keys
     openai_secret_id: Mapped[Optional[int]] = mapped_column(
-        Integer,
-        ForeignKey("secrets.id", ondelete="SET NULL"),
-        nullable=True
+        Integer, ForeignKey("secrets.id", ondelete="SET NULL"), nullable=True
     )
     keboola_secret_id: Mapped[Optional[int]] = mapped_column(
-        Integer,
-        ForeignKey("secrets.id", ondelete="SET NULL"),
-        nullable=True
+        Integer, ForeignKey("secrets.id", ondelete="SET NULL"), nullable=True
     )
 
     # Keboola configuration
     keboola_stack_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    keboola_component_id: Mapped[str] = mapped_column(String(255), nullable=False)
     keboola_configuration_id: Mapped[str] = mapped_column(String(255), nullable=False)
 
     # Polling configuration
     poll_interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=120)
 
     # Job status
-    status: Mapped[str] = mapped_column(
-        String(50),
-        nullable=False,
-        default="active",
-        index=True
-    )
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="active", index=True)
 
     # Timestamps
     last_check_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     next_check_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.utcnow
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
     )
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     # Relationships
     openai_secret: Mapped[Optional["Secret"]] = relationship(
-        "Secret",
-        back_populates="openai_jobs",
-        foreign_keys=[openai_secret_id]
+        "Secret", back_populates="openai_jobs", foreign_keys=[openai_secret_id]
     )
     keboola_secret: Mapped[Optional["Secret"]] = relationship(
-        "Secret",
-        back_populates="keboola_jobs",
-        foreign_keys=[keboola_secret_id]
+        "Secret", back_populates="keboola_jobs", foreign_keys=[keboola_secret_id]
     )
     logs: Mapped[list["PollingLog"]] = relationship(
         "PollingLog",
         back_populates="job",
         cascade="all, delete-orphan",
-        order_by="PollingLog.created_at.desc()"
+        order_by="PollingLog.created_at.desc()",
     )
 
     # Indexes for common queries
@@ -182,29 +163,21 @@ class PollingLog(Base):
         message: Log message with details
         created_at: When the log entry was created
     """
+
     __tablename__ = "polling_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     job_id: Mapped[int] = mapped_column(
-        Integer,
-        ForeignKey("polling_jobs.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True
+        Integer, ForeignKey("polling_jobs.id", ondelete="CASCADE"), nullable=False, index=True
     )
     status: Mapped[str] = mapped_column(String(50), nullable=False)
     message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.utcnow,
-        index=True
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), index=True
     )
 
     # Relationships
-    job: Mapped["PollingJob"] = relationship(
-        "PollingJob",
-        back_populates="logs"
-    )
+    job: Mapped["PollingJob"] = relationship("PollingJob", back_populates="logs")
 
     # Indexes for efficient log queries
     __table_args__ = (
