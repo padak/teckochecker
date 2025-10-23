@@ -590,8 +590,22 @@ class TeckoApp {
             return 'Paused';
         }
 
-        // For active jobs, show relative time
-        return job.next_check_at ? this.formatRelativeTime(job.next_check_at) : '-';
+        // For active jobs, check if next_check_at is in the past
+        if (job.next_check_at) {
+            const date = new Date(job.next_check_at);
+            const now = new Date();
+            const diff = Math.floor((date - now) / 1000);
+
+            // If next_check is in the past, job is likely checking now
+            if (diff < 0) {
+                return 'checking...';
+            }
+
+            // Otherwise show relative time
+            return this.formatRelativeTime(job.next_check_at);
+        }
+
+        return '-';
     }
 
     handleCommand(command) {
