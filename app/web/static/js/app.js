@@ -6,6 +6,8 @@ class TeckoApp {
     constructor() {
         this.autoRefreshInterval = null;
         this.autoRefreshEnabled = false;
+        this.jobsRefreshInterval = null;  // Auto-refresh for jobs tab
+        this.currentTab = 'jobs';  // Track active tab
         this.init();
     }
 
@@ -32,12 +34,23 @@ class TeckoApp {
         this.loadJobs();
         this.loadStats();
         this.loadHealth();
+
+        // Start auto-refresh for jobs (default tab)
+        this.startJobsAutoRefresh();
     }
 
     /**
      * Switch between tabs
      */
     switchTab(tabName) {
+        // Stop jobs auto-refresh when leaving jobs tab
+        if (this.currentTab === 'jobs' && tabName !== 'jobs') {
+            this.stopJobsAutoRefresh();
+        }
+
+        // Update current tab
+        this.currentTab = tabName;
+
         // Update tab buttons
         document.querySelectorAll('.nav-tab').forEach(tab => {
             tab.classList.toggle('active', tab.dataset.tab === tabName);
@@ -55,6 +68,7 @@ class TeckoApp {
                 break;
             case 'jobs':
                 this.loadJobs();
+                this.startJobsAutoRefresh();  // Start auto-refresh for jobs
                 break;
             case 'monitor':
                 this.loadStats();
@@ -313,6 +327,29 @@ class TeckoApp {
             this.showSuccess('Job deleted');
         } catch (error) {
             this.showError('Failed to delete job', error);
+        }
+    }
+
+    /**
+     * Start auto-refresh for jobs (every 10 seconds)
+     */
+    startJobsAutoRefresh() {
+        // Clear existing interval if any
+        this.stopJobsAutoRefresh();
+
+        // Refresh every 10 seconds
+        this.jobsRefreshInterval = setInterval(() => {
+            this.loadJobs();
+        }, 10000);
+    }
+
+    /**
+     * Stop auto-refresh for jobs
+     */
+    stopJobsAutoRefresh() {
+        if (this.jobsRefreshInterval) {
+            clearInterval(this.jobsRefreshInterval);
+            this.jobsRefreshInterval = null;
         }
     }
 

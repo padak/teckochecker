@@ -335,7 +335,7 @@ def job_create(
         ...,
         "--batch-id",
         "-b",
-        help="OpenAI batch ID to monitor (can be specified multiple times for multi-batch jobs, 1-10 batches)",
+        help="[REPEATABLE] OpenAI batch ID to monitor. Use multiple times for multi-batch jobs (1-10 batches). Example: -b batch_1 -b batch_2 -b batch_3",
     ),
     openai_secret: str = typer.Option(
         ...,
@@ -378,14 +378,16 @@ def job_create(
     the Keboola configuration when all batches complete.
 
     Examples:
-        # Single batch
-        teckochecker job create --name "Job1" --batch-id batch_abc123 ...
 
-        # Multiple batches
-        teckochecker job create --name "Multi-job" \\
-            --batch-id batch_abc123 \\
-            --batch-id batch_def456 \\
-            --batch-id batch_ghi789 ...
+        Single batch job:
+        $ teckochecker job create -n "Job1" -b batch_abc123 --openai-secret api1 ...
+
+        Multi-batch job (repeat -b flag):
+        $ teckochecker job create -n "Multi-job" \\
+            -b batch_abc123 \\
+            -b batch_def456 \\
+            -b batch_ghi789 \\
+            --openai-secret api1 --keboola-secret kb1 ...
     """
     # Validate batch_ids
     if not batch_id:
