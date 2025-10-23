@@ -1,15 +1,6 @@
 # TeckoChecker Demo - Keboola Custom Python Script
 
-This demo script (`main.py`) shows how to receive and process batch completion metadata from TeckoChecker in Keboola Connection.
-
-## What This Script Does
-
-When TeckoChecker finishes monitoring OpenAI batch jobs, it automatically triggers your Keboola configuration with metadata about:
-- Which batches completed successfully
-- Which batches failed/were cancelled/expired
-- Total counts and batch IDs
-
-This demo script receives that metadata and logs it to Keboola events.
+This demo script receives batch completion metadata from TeckoChecker and processes it in Keboola Connection. When TeckoChecker finishes monitoring OpenAI batches, it triggers your Keboola configuration with completion status, batch IDs, and counts.
 
 ## Parameters Received from TeckoChecker
 
@@ -25,30 +16,15 @@ TeckoChecker passes these parameters automatically:
 }
 ```
 
-## Setup in Keboola Connection
+## Setup Steps
 
-### Step 1: Create Custom Python Configuration
+1. **Create Keboola Configuration**
+   - Go to Components > Custom Python Script (`kds-team.app-custom-python`)
+   - Create new configuration, select Python 3.13+
+   - Paste `keboola_batch_handler.py` contents into the code editor
+   - Save and note the Configuration ID
 
-1. Go to **Components** in your Keboola project
-2. Search for **"Custom Python Script"** (component ID: `kds-team.app-custom-python`)
-3. Click **"+ New Configuration"**
-4. Give it a name like `"TeckoChecker Demo"`
-
-### Step 2: Configure the Script
-
-In the configuration editor:
-
-1. **Python Version**: Select `3.13` (or latest available)
-2. **Code Source**: Select `code` (inline code editor)
-3. **Script**: Paste the contents of `main.py` into the code editor
-
-### Step 3: Get Configuration ID
-
-After saving, note your **Configuration ID** from the URL or configuration detail page.
-
-### Step 4: Configure TeckoChecker
-
-Create a polling job in TeckoChecker pointing to this Keboola configuration:
+2. **Create TeckoChecker Polling Job**
 
 ```bash
 teckochecker job create \
@@ -65,118 +41,47 @@ teckochecker job create \
 
 ## How It Works
 
-### TeckoChecker Flow
-
-1. **Monitoring**: TeckoChecker polls OpenAI for batch status every X seconds
-2. **Completion**: When all batches reach terminal state
-3. **Trigger**: TeckoChecker triggers your Keboola configuration via API
-4. **Parameters**: Batch metadata is passed as `configData.parameters`
-5. **Execution**: Keboola runs your Custom Python script with those parameters
-
-### Script Flow
+1. TeckoChecker polls OpenAI for batch status
+2. When all batches reach terminal state, TeckoChecker triggers your Keboola configuration
+3. Batch metadata is passed as `configData.parameters`
+4. Your script processes the results:
 
 ```python
-# 1. Initialize Keboola interface
 ci = CommonInterface()
 parameters = ci.configuration.parameters
-
-# 2. Extract batch metadata
 batch_ids_completed = parameters.get("batch_ids_completed", [])
 batch_ids_failed = parameters.get("batch_ids_failed", [])
-
-# 3. Log summary
-logging.info(f"Total: {batch_count_total}")
-logging.info(f"Completed: {batch_count_completed}")
-logging.info(f"Failed: {batch_count_failed}")
-
-# 4. Process results
-process_batch_results(batch_ids_completed, batch_ids_failed)
+# Process your batches...
 ```
 
-## Customizing the Script
+## Customization Example
 
-### Add OpenAI Integration
-
-Download completed batch results:
+Download and process OpenAI batch results:
 
 ```python
 import openai
 
 def download_batch_results(batch_id: str) -> None:
-    """Download results from completed OpenAI batch."""
     client = openai.OpenAI(api_key=parameters.get("#openai_api_key"))
-
-    # Get batch details
     batch = client.batches.retrieve(batch_id)
 
-    # Download output file
     if batch.output_file_id:
         content = client.files.content(batch.output_file_id)
-        # Process content...
-```
-
-### Add Notification Logic
-
-```python
-def send_completion_notification(batch_count: int, failed_count: int) -> None:
-    """Send notification about batch completion."""
-    if failed_count == 0:
-        send_slack_message(f"All {batch_count} batches completed!")
-    else:
-        send_slack_message(f"{failed_count}/{batch_count} batches failed")
-```
-
-### Write Results to Keboola Storage
-
-```python
-import csv
-from keboola.component import CommonInterface
-
-def write_batch_results(ci: CommonInterface, parameters: dict) -> None:
-    """Write batch results to Keboola Storage."""
-    out_table_path = ci.create_out_table_definition(
-        "batch_results.csv",
-        primary_key=["batch_id"]
-    )
-
-    with open(out_table_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["batch_id", "status"])
-        writer.writeheader()
-
-        for batch_id in parameters.get("batch_ids_completed", []):
-            writer.writerow({"batch_id": batch_id, "status": "completed"})
-
-        for batch_id in parameters.get("batch_ids_failed", []):
-            writer.writerow({"batch_id": batch_id, "status": "failed"})
+        # Process content, write to Keboola Storage, send notifications, etc.
 ```
 
 ## Testing
 
-### Local Testing (Optional)
+**In Keboola**: Click "Run Component" in your configuration, add test parameters, check Events tab for output.
 
+**Locally** (optional):
 ```bash
 mkdir -p /data/config
 cat > /data/config/config.json << 'EOF'
-{
-  "parameters": {
-    "batch_ids_completed": ["batch_test123", "batch_test456"],
-    "batch_ids_failed": ["batch_test789"],
-    "batch_count_total": 3,
-    "batch_count_completed": 2,
-    "batch_count_failed": 1
-  }
-}
+{"parameters": {"batch_ids_completed": ["batch_test123"], "batch_ids_failed": [], "batch_count_total": 1, "batch_count_completed": 1, "batch_count_failed": 0}}
 EOF
-
-python main.py
+python keboola_batch_handler.py
 ```
-
-### Testing in Keboola
-
-1. Open your Custom Python configuration
-2. Click **"Run Component"**
-3. Add test parameters manually
-4. Check **"Events"** tab for logged output
 
 ## Expected Output
 
@@ -184,63 +89,33 @@ python main.py
 ================================================================================
 TeckoChecker Batch Completion Summary
 ================================================================================
-Total Batches: 3
-Completed: 2
-Failed: 1
+Total Batches: 3 | Completed: 2 | Failed: 1
 
-Completed Batch IDs:
-  1. batch_abc123
-  2. batch_def456
-
-Failed Batch IDs:
-  1. batch_ghi789
+Completed Batch IDs: batch_abc123, batch_def456
+Failed Batch IDs: batch_ghi789
 ================================================================================
-Partial success: 2/3 batches completed
-
-Processing batch results...
-Processing 2 completed batches...
-  - Would download/process results from: batch_abc123
-  - Would download/process results from: batch_def456
-Handling 1 failed batches...
-  - Would handle failure for: batch_ghi789
 Processing complete!
-
-TeckoChecker Demo Script Completed Successfully
 ```
-
-## Next Steps
-
-1. **Customize**: Add your own processing logic in `process_batch_results()`
-2. **Integrate**: Connect to OpenAI API to download actual batch results
-3. **Store**: Write results to Keboola Storage tables
-4. **Notify**: Send notifications to Slack, email, or other systems
-5. **Orchestrate**: Trigger additional Keboola flows based on completion status
 
 ## Troubleshooting
 
-### Script Not Receiving Parameters
+**No parameters received?**
+- Verify correct `component-id` and `config-id` in TeckoChecker
+- Check Keboola secret has valid API token with write permissions
+- Review TeckoChecker logs for trigger confirmation
 
-Check that:
-- TeckoChecker configuration has correct `component-id` and `config-id`
-- Keboola secret has valid API token with write permissions
-- TeckoChecker logs show successful Keboola trigger
+**Empty parameters?**
+- Ensure TeckoChecker is running: `python teckochecker.py start`
+- Verify polling job is active: `teckochecker job list`
+- Confirm OpenAI batches exist and are accessible
 
-### Parameters Are Empty
-
-Verify:
-- TeckoChecker is running: `python teckochecker.py start`
-- Polling job is active: `teckochecker job list`
-- OpenAI batches exist and are reachable
-
-### Script Fails to Run
-
-Check:
-- Python version is compatible (3.11+)
-- `keboola.component` library is available
-- Script syntax is valid
+**Script fails?**
+- Check Python version compatibility (3.11+)
+- Verify `keboola.component` library is available
+- Validate script syntax
 
 ## Resources
 
-- [TeckoChecker Documentation](../docs/USER_GUIDE.md)
-- [Keboola Custom Python Documentation](https://github.com/keboola/component-custom-python)
-- [OpenAI Batch API Documentation](https://platform.openai.com/docs/api-reference/batch)
+- [TeckoChecker User Guide](../docs/USER_GUIDE.md)
+- [Keboola Custom Python](https://github.com/keboola/component-custom-python)
+- [OpenAI Batch API](https://platform.openai.com/docs/api-reference/batch)
