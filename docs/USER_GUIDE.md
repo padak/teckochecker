@@ -182,9 +182,75 @@ python teckochecker.py job create \
 ✓ Polling job 'Batch processing job' created successfully (ID: 1)
 ```
 
+### Creating Multi-Batch Jobs (v1.0+)
+
+TeckoChecker supports monitoring multiple OpenAI batch jobs in a single polling job. This is useful when you need to wait for multiple batch processing operations to complete before triggering downstream workflows.
+
+#### Via CLI:
+```bash
+teckochecker job create \
+  --name "Multi-batch processing" \
+  --batch-id "batch_abc123" \
+  --batch-id "batch_def456" \
+  --batch-id "batch_ghi789" \
+  --openai-secret "openai-prod" \
+  --keboola-secret "keboola-prod" \
+  --keboola-stack "https://connection.eu-central-1.keboola.com" \
+  --component-id "kds-team.app-custom-python" \
+  --config-id "123456" \
+  --poll-interval 120
+```
+
+#### Via API:
+```json
+POST /api/jobs
+{
+  "name": "Process multiple batches",
+  "batch_ids": [
+    "batch_abc123",
+    "batch_def456",
+    "batch_ghi789"
+  ],
+  "openai_secret_id": 1,
+  "keboola_secret_id": 2,
+  "keboola_stack_url": "https://connection.eu-central-1.keboola.com",
+  "keboola_component_id": "kds-team.app-custom-python",
+  "keboola_configuration_id": "123456",
+  "poll_interval_seconds": 120
+}
+```
+
+**Key Features:**
+- Monitor 1-10 batch IDs per job
+- Keboola triggered when ALL batches complete (or reach terminal state)
+- Batch completion metadata automatically passed to Keboola jobs
+- Individual batch status tracking and progress reporting
+
+### Multi-Batch Completion Logic
+
+**Trigger Condition:**
+- The job triggers Keboola when ALL batches reach a terminal state
+- Terminal states: `completed`, `failed`, `cancelled`, `expired`
+- Failed or cancelled batches don't block the trigger - the job completes and passes failure info to Keboola
+
+**Metadata Passed to Keboola:**
+When a multi-batch job completes, the following metadata is automatically sent to your Keboola configuration:
+- `batch_ids_completed`: List of successfully completed batch IDs
+- `batch_ids_failed`: List of failed/cancelled/expired batch IDs
+- `batch_count_total`: Total number of batches monitored
+- `batch_count_completed`: Count of successfully completed batches
+- `batch_count_failed`: Count of failed batches
+
+**Example Scenario:**
+- Job monitors 5 batches
+- 3 complete successfully
+- 2 fail due to OpenAI errors
+- Result: Job status = `completed_with_failures`
+- Keboola receives both lists and can handle partial success scenarios
+
 ### Parameters for job creation
 - `--name`: Descriptive job name
-- `--batch-id`: OpenAI batch job ID
+- `--batch-id`: OpenAI batch job ID (can be specified multiple times for multi-batch jobs)
 - `--openai-secret`: OpenAI secret name
 - `--keboola-secret`: Keboola secret name
 - `--keboola-stack`: Keboola stack URL (e.g., `https://connection.eu-central-1.keboola.com`)
@@ -203,6 +269,52 @@ python teckochecker.py job list --status active
 # Only completed jobs
 python teckochecker.py job list --status completed
 ```
+
+### Monitoring Multi-Batch Job Progress
+
+#### Via CLI:
+```bash
+# List jobs with batch completion ratios
+teckochecker job list
+# Output shows: Job "Multi-batch processing" → Batches: 3/5 completed
+
+# View detailed batch status
+teckochecker job show <job-id>
+# Shows individual batch statuses and timestamps
+```
+
+**Example CLI output for multi-batch job:**
+```bash
+╭─────────────────────────────────────────────────────╮
+│              Polling Job Details                    │
+├─────────────────┬───────────────────────────────────┤
+│ ID              │ 1                                 │
+│ Name            │ Multi-batch processing           │
+│ Status          │ 🟢 active                        │
+│ Batches         │ 3/5 completed                     │
+│ Poll Interval   │ 120 seconds                       │
+│ Last Check      │ 2025-01-22 10:15:00              │
+│ Next Check      │ 2025-01-22 10:17:00              │
+│ Created At      │ 2025-01-22 10:00:00              │
+├─────────────────┴───────────────────────────────────┤
+│                  Batch Status                       │
+├────────────────────────────┬────────────────────────┤
+│ batch_abc123               │ ✓ completed            │
+│ batch_def456               │ ✓ completed            │
+│ batch_ghi789               │ ✓ completed            │
+│ batch_jkl012               │ ⏳ in_progress         │
+│ batch_mno345               │ 🔄 validating          │
+╰────────────────────────────┴────────────────────────╯
+```
+
+#### Via Web UI:
+- Job list displays completion badges (e.g., "3/5 completed")
+- Click job row to see detailed batch status table
+- Color-coded status indicators:
+  - Green: completed batches
+  - Red: failed/cancelled/expired batches
+  - Yellow: in-progress batches
+  - Blue: validating/queued batches
 
 ### Job details
 ```bash
@@ -319,12 +431,26 @@ curl http://localhost:8000/api/jobs
 # Job details
 curl http://localhost:8000/api/jobs/1
 
-# Create job
+# Create job (single batch)
 curl -X POST http://localhost:8000/api/jobs \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Test job",
-    "batch_id": "batch_123",
+    "batch_ids": ["batch_123"],
+    "openai_secret_id": 1,
+    "keboola_secret_id": 2,
+    "keboola_stack_url": "https://connection.eu-central-1.keboola.com",
+    "keboola_component_id": "kds-team.app-custom-python",
+    "keboola_configuration_id": "123456",
+    "poll_interval_seconds": 120
+  }'
+
+# Create multi-batch job
+curl -X POST http://localhost:8000/api/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Multi-batch job",
+    "batch_ids": ["batch_abc123", "batch_def456", "batch_ghi789"],
     "openai_secret_id": 1,
     "keboola_secret_id": 2,
     "keboola_stack_url": "https://connection.eu-central-1.keboola.com",
@@ -401,6 +527,65 @@ tail -f teckochecker.log
 - Verify Storage API token validity
 - Check stack URL correctness
 - Verify configuration ID
+
+### Multi-Batch Validation Errors
+
+**Error**: "At least one batch ID is required"
+- **Cause**: No `--batch-id` flags provided when creating a job
+- **Solution**: Add at least one `--batch-id` flag to your command
+
+**Error**: "Too many batch IDs: X (maximum: 10)"
+- **Cause**: More than 10 batch IDs provided
+- **Solution**: Split into multiple jobs or reduce the number of batches to 10 or fewer
+
+**Error**: "Duplicate batch IDs found. Each batch ID must be unique."
+- **Cause**: Same batch ID specified multiple times
+- **Solution**: Remove duplicate batch IDs from your command
+
+**Error**: "Invalid batch ID format: 'XXX' (must start with 'batch_')"
+- **Cause**: Batch ID doesn't start with required 'batch_' prefix
+- **Solution**: Ensure all batch IDs start with 'batch_' (e.g., 'batch_abc123')
+
+**Error**: "Batch ID 'XXX' contains invalid characters"
+- **Cause**: Batch ID contains characters outside allowed set [a-zA-Z0-9_-]
+- **Solution**: Use only alphanumeric characters, underscores, and hyphens
+- **Examples**:
+  - ✅ Valid: `batch_abc123`, `batch_test-job_01`, `batch_2024-10-23_ABC`
+  - ❌ Invalid: `batch_test@job`, `batch_test job`, `batch_test.job`, `batch_tëst`
+
+**Error**: "Batch ID 'XXX' exceeds 255 character limit"
+- **Cause**: Batch ID is too long
+- **Solution**: Verify the batch ID from OpenAI API (OpenAI batch IDs should not exceed this limit)
+
+**Error**: "Batch ID 'XXX' too short (must have content after 'batch_')"
+- **Cause**: Batch ID is just 'batch_' with no content after
+- **Solution**: Ensure batch ID has characters after the 'batch_' prefix (e.g., 'batch_1', 'batch_abc')
+
+**Common Validation Scenarios:**
+
+```bash
+# ❌ Error: No batch IDs
+teckochecker job create --name "Test" --openai-secret "test" ...
+# Fix: Add at least one --batch-id
+
+# ❌ Error: Too many batches
+teckochecker job create --batch-id "batch_1" ... --batch-id "batch_11" ...
+# Fix: Maximum 10 batches allowed
+
+# ❌ Error: Duplicates
+teckochecker job create --batch-id "batch_123" --batch-id "batch_123" ...
+# Fix: Remove duplicate batch IDs
+
+# ❌ Error: Invalid format
+teckochecker job create --batch-id "abc123" ...
+# Fix: Use --batch-id "batch_abc123"
+
+# ✅ Correct: Single batch
+teckochecker job create --batch-id "batch_abc123" ...
+
+# ✅ Correct: Multiple batches
+teckochecker job create --batch-id "batch_1" --batch-id "batch_2" --batch-id "batch_3" ...
+```
 
 ### General
 

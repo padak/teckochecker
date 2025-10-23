@@ -101,7 +101,6 @@ class TestSecretRelationships:
         # Create job using openai_secret
         job = PollingJob(
             name="test-job-openai-only",
-            batch_id="batch_123",
             openai_secret_id=openai_secret.id,  # Using openai secret
             keboola_secret_id=keboola_secret.id,  # Using different keboola secret
             keboola_stack_url="https://connection.keboola.com",
@@ -110,6 +109,11 @@ class TestSecretRelationships:
             status="active",
         )
         db_session.add(job)
+        db_session.flush()
+
+        from app.models import JobBatch
+        batch = JobBatch(job_id=job.id, batch_id="batch_123", status="in_progress")
+        db_session.add(batch)
         db_session.commit()
 
         # Refresh to load relationships
@@ -134,7 +138,6 @@ class TestSecretRelationships:
         # Create job using keboola_secret
         job = PollingJob(
             name="test-job-keboola-only",
-            batch_id="batch_456",
             openai_secret_id=openai_secret.id,  # Using different openai secret
             keboola_secret_id=keboola_secret.id,  # Using keboola secret
             keboola_stack_url="https://connection.keboola.com",
@@ -143,6 +146,11 @@ class TestSecretRelationships:
             status="active",
         )
         db_session.add(job)
+        db_session.flush()
+
+        from app.models import JobBatch
+        batch = JobBatch(job_id=job.id, batch_id="batch_456", status="in_progress")
+        db_session.add(batch)
         db_session.commit()
 
         # Refresh to load relationships
@@ -164,7 +172,6 @@ class TestSecretRelationships:
         # Create job using the same secret for both
         job = PollingJob(
             name="test-job-both",
-            batch_id="batch_789",
             openai_secret_id=secret.id,  # Using as openai
             keboola_secret_id=secret.id,  # Using as keboola
             keboola_stack_url="https://connection.keboola.com",
@@ -173,6 +180,11 @@ class TestSecretRelationships:
             status="active",
         )
         db_session.add(job)
+        db_session.flush()
+
+        from app.models import JobBatch
+        batch = JobBatch(job_id=job.id, batch_id="batch_789", status="in_progress")
+        db_session.add(batch)
         db_session.commit()
 
         # Refresh to load relationships
@@ -196,10 +208,11 @@ class TestSecretRelationships:
         )
 
         # Create multiple jobs using the same openai_secret
+        from app.models import JobBatch
+
         for i in range(3):
             job = PollingJob(
                 name=f"test-job-{i}",
-                batch_id=f"batch_{i}",
                 openai_secret_id=openai_secret.id,
                 keboola_secret_id=keboola_secret.id,
                 keboola_stack_url="https://connection.keboola.com",
@@ -208,6 +221,10 @@ class TestSecretRelationships:
                 status="active",
             )
             db_session.add(job)
+            db_session.flush()
+
+            batch = JobBatch(job_id=job.id, batch_id=f"batch_{i}", status="in_progress")
+            db_session.add(batch)
         db_session.commit()
 
         # Refresh to load relationships
@@ -234,7 +251,6 @@ class TestSecretRelationships:
         # Create job using secret only as openai_secret
         job1 = PollingJob(
             name="job-using-openai",
-            batch_id="batch_1",
             openai_secret_id=secret.id,
             keboola_secret_id=secret.id,  # Also using as keboola
             keboola_stack_url="https://connection.keboola.com",
@@ -243,6 +259,11 @@ class TestSecretRelationships:
             status="active",
         )
         db_session.add(job1)
+        db_session.flush()
+
+        from app.models import JobBatch
+        batch = JobBatch(job_id=job1.id, batch_id="batch_1", status="in_progress")
+        db_session.add(batch)
         db_session.commit()
 
         # Try to delete - should fail because secret is in use
@@ -308,7 +329,6 @@ class TestDeleteSecretWithRelationships:
         # Create job using openai_secret_1
         job1 = PollingJob(
             name="job-1",
-            batch_id="batch_1",
             openai_secret_id=openai_secret_1.id,
             keboola_secret_id=keboola_secret.id,
             keboola_stack_url="https://connection.keboola.com",
@@ -317,6 +337,11 @@ class TestDeleteSecretWithRelationships:
             status="active",
         )
         db_session.add(job1)
+        db_session.flush()
+
+        from app.models import JobBatch
+        batch = JobBatch(job_id=job1.id, batch_id="batch_1", status="in_progress")
+        db_session.add(batch)
         db_session.commit()
 
         # Should NOT be able to delete openai_secret_1 (in use)

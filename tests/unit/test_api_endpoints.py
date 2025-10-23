@@ -120,9 +120,10 @@ def sample_keboola_secret(db_session, encryption_key):
 @pytest.fixture
 def sample_job(db_session, sample_openai_secret, sample_keboola_secret):
     """Create a sample polling job in the database."""
+    from app.models import JobBatch
+
     job = PollingJob(
         name="Test Job",
-        batch_id="batch_abc123",
         openai_secret_id=sample_openai_secret.id,
         keboola_secret_id=sample_keboola_secret.id,
         keboola_stack_url="https://connection.keboola.com",
@@ -135,6 +136,17 @@ def sample_job(db_session, sample_openai_secret, sample_keboola_secret):
     db_session.add(job)
     db_session.commit()
     db_session.refresh(job)
+
+    # Add a batch to the job (multi-batch schema)
+    batch = JobBatch(
+        job_id=job.id,
+        batch_id="batch_abc123",
+        status="in_progress",
+    )
+    db_session.add(batch)
+    db_session.commit()
+    db_session.refresh(job)
+
     # Keep session open, don't expunge
     return job
 
@@ -209,12 +221,13 @@ class TestSystemEndpoints:
         self, client, db_session, sample_openai_secret, sample_keboola_secret
     ):
         """Test stats correctly counts jobs by status."""
+        from app.models import JobBatch
+
         # Create jobs with different statuses
         statuses = ["active", "paused", "completed", "failed"]
         for status in statuses:
             job = PollingJob(
                 name=f"Job {status}",
-                batch_id=f"batch_{status}",
                 openai_secret_id=sample_openai_secret.id,
                 keboola_secret_id=sample_keboola_secret.id,
                 keboola_stack_url="https://connection.keboola.com",
@@ -223,6 +236,16 @@ class TestSystemEndpoints:
                 status=status,
             )
             db_session.add(job)
+            db_session.flush()
+
+            # Add batch for each job
+            batch = JobBatch(
+                job_id=job.id,
+                batch_id=f"batch_{status}",
+                status="in_progress",
+            )
+            db_session.add(batch)
+
         db_session.commit()
 
         response = client.get("/api/stats")
@@ -420,7 +443,7 @@ class TestJobEndpoints:
         """Test creating a new polling job."""
         job_data = {
             "name": "My Test Job",
-            "batch_id": "batch_xyz789",
+            "batch_ids": ["batch_xyz789"],
             "openai_secret_id": sample_openai_secret.id,
             "keboola_secret_id": sample_keboola_secret.id,
             "keboola_stack_url": "https://connection.keboola.com",
@@ -434,7 +457,8 @@ class TestJobEndpoints:
         assert response.status_code == 201
         data = response.json()
         assert data["name"] == job_data["name"]
-        assert data["batch_id"] == job_data["batch_id"]
+        assert len(data["batches"]) == 1
+        assert data["batches"][0]["batch_id"] == "batch_xyz789"
         assert data["status"] == "active"
         assert data["poll_interval_seconds"] == 180
         assert "id" in data
@@ -447,7 +471,7 @@ class TestJobEndpoints:
         """Test creating job with default poll interval."""
         job_data = {
             "name": "Default Interval Job",
-            "batch_id": "batch_default",
+            "batch_ids": ["batch_default"],
             "openai_secret_id": sample_openai_secret.id,
             "keboola_secret_id": sample_keboola_secret.id,
             "keboola_stack_url": "https://connection.keboola.com",
@@ -466,7 +490,7 @@ class TestJobEndpoints:
         """Test creating job with non-existent OpenAI secret."""
         job_data = {
             "name": "Invalid Job",
-            "batch_id": "batch_invalid",
+            "batch_ids": ["batch_invalid"],
             "openai_secret_id": 99999,  # Non-existent
             "keboola_secret_id": sample_keboola_secret.id,
             "keboola_stack_url": "https://connection.keboola.com",
@@ -485,7 +509,7 @@ class TestJobEndpoints:
         """Test creating job with non-existent Keboola secret."""
         job_data = {
             "name": "Invalid Job",
-            "batch_id": "batch_invalid",
+            "batch_ids": ["batch_invalid"],
             "openai_secret_id": sample_openai_secret.id,
             "keboola_secret_id": 99999,  # Non-existent
             "keboola_stack_url": "https://connection.keboola.com",
@@ -505,7 +529,7 @@ class TestJobEndpoints:
         """Test creating job with invalid poll interval."""
         job_data = {
             "name": "Invalid Interval Job",
-            "batch_id": "batch_invalid_interval",
+            "batch_ids": ["batch_invalid_interval"],
             "openai_secret_id": sample_openai_secret.id,
             "keboola_secret_id": sample_keboola_secret.id,
             "keboola_stack_url": "https://connection.keboola.com",
@@ -524,7 +548,7 @@ class TestJobEndpoints:
         """Test that creating a job also creates initial log entry."""
         job_data = {
             "name": "Logged Job",
-            "batch_id": "batch_logged",
+            "batch_ids": ["batch_logged"],
             "openai_secret_id": sample_openai_secret.id,
             "keboola_secret_id": sample_keboola_secret.id,
             "keboola_stack_url": "https://connection.keboola.com",
@@ -566,10 +590,11 @@ class TestJobEndpoints:
         self, client, db_session, sample_openai_secret, sample_keboola_secret
     ):
         """Test filtering jobs by status."""
+        from app.models import JobBatch
+
         # Create jobs with different statuses
         active_job = PollingJob(
             name="Active Job",
-            batch_id="batch_active",
             openai_secret_id=sample_openai_secret.id,
             keboola_secret_id=sample_keboola_secret.id,
             keboola_stack_url="https://connection.keboola.com",
@@ -579,7 +604,6 @@ class TestJobEndpoints:
         )
         paused_job = PollingJob(
             name="Paused Job",
-            batch_id="batch_paused",
             openai_secret_id=sample_openai_secret.id,
             keboola_secret_id=sample_keboola_secret.id,
             keboola_stack_url="https://connection.keboola.com",
@@ -588,6 +612,12 @@ class TestJobEndpoints:
             status="paused",
         )
         db_session.add_all([active_job, paused_job])
+        db_session.flush()
+
+        # Add batches
+        active_batch = JobBatch(job_id=active_job.id, batch_id="batch_active", status="in_progress")
+        paused_batch = JobBatch(job_id=paused_job.id, batch_id="batch_paused", status="in_progress")
+        db_session.add_all([active_batch, paused_batch])
         db_session.commit()
 
         # Filter for active jobs only
@@ -606,7 +636,8 @@ class TestJobEndpoints:
         data = response.json()
         assert data["id"] == sample_job.id
         assert data["name"] == sample_job.name
-        assert data["batch_id"] == sample_job.batch_id
+        assert "batches" in data
+        assert len(data["batches"]) > 0
         assert "logs" in data
 
     def test_get_job_with_logs(self, client, db_session, sample_job):
@@ -679,8 +710,8 @@ class TestJobEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == update_data["name"]
-        # Other fields should remain unchanged
-        assert data["batch_id"] == sample_job.batch_id
+        # Other fields should remain unchanged (batches should still exist)
+        assert "batches" in data
 
     def test_update_job_not_found(self, client):
         """Test updating non-existent job."""
@@ -967,7 +998,10 @@ class TestResponseSchemas:
         required_fields = [
             "id",
             "name",
-            "batch_id",
+            "batches",  # Changed from batch_id to batches array
+            "batch_count",
+            "completed_count",
+            "failed_count",
             "openai_secret_id",
             "keboola_secret_id",
             "keboola_stack_url",
@@ -1047,7 +1081,7 @@ class TestEdgeCases:
         """Test creating multiple jobs with the same batch_id."""
         job_data_1 = {
             "name": "Job 1",
-            "batch_id": "batch_shared",
+            "batch_ids": ["batch_shared"],
             "openai_secret_id": sample_openai_secret.id,
             "keboola_secret_id": sample_keboola_secret.id,
             "keboola_stack_url": "https://connection.keboola.com",
@@ -1057,7 +1091,7 @@ class TestEdgeCases:
 
         job_data_2 = {
             "name": "Job 2",
-            "batch_id": "batch_shared",  # Same batch_id
+            "batch_ids": ["batch_shared"],  # Same batch_id
             "openai_secret_id": sample_openai_secret.id,
             "keboola_secret_id": sample_keboola_secret.id,
             "keboola_stack_url": "https://connection.keboola.com",
@@ -1068,7 +1102,7 @@ class TestEdgeCases:
         response1 = client.post("/api/jobs", json=job_data_1)
         response2 = client.post("/api/jobs", json=job_data_2)
 
-        # Both should succeed (same batch_id is allowed)
+        # Both should succeed (same batch_id is allowed in different jobs)
         assert response1.status_code == 201
         assert response2.status_code == 201
 
@@ -1076,7 +1110,7 @@ class TestEdgeCases:
         """Test creating job with maximum length name."""
         job_data = {
             "name": "A" * 255,  # Max length
-            "batch_id": "batch_long_name",
+            "batch_ids": ["batch_long_name"],
             "openai_secret_id": sample_openai_secret.id,
             "keboola_secret_id": sample_keboola_secret.id,
             "keboola_stack_url": "https://connection.keboola.com",
@@ -1091,7 +1125,7 @@ class TestEdgeCases:
         """Test creating job with minimum poll interval."""
         job_data = {
             "name": "Min Interval Job",
-            "batch_id": "batch_min_interval",
+            "batch_ids": ["batch_min_interval"],
             "openai_secret_id": sample_openai_secret.id,
             "keboola_secret_id": sample_keboola_secret.id,
             "keboola_stack_url": "https://connection.keboola.com",
@@ -1107,7 +1141,7 @@ class TestEdgeCases:
         """Test creating job with maximum poll interval."""
         job_data = {
             "name": "Max Interval Job",
-            "batch_id": "batch_max_interval",
+            "batch_ids": ["batch_max_interval"],
             "openai_secret_id": sample_openai_secret.id,
             "keboola_secret_id": sample_keboola_secret.id,
             "keboola_stack_url": "https://connection.keboola.com",

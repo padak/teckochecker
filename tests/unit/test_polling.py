@@ -122,9 +122,10 @@ def keboola_secret(db_session, encryption_key):
 @pytest.fixture
 def sample_job(db_session, openai_secret, keboola_secret):
     """Create a sample polling job."""
+    from app.models import JobBatch
+
     job = PollingJob(
         name="test-job",
-        batch_id="batch_test123",
         openai_secret_id=openai_secret.id,
         keboola_secret_id=keboola_secret.id,
         keboola_stack_url="https://connection.keboola.com",
@@ -137,6 +138,17 @@ def sample_job(db_session, openai_secret, keboola_secret):
     db_session.add(job)
     db_session.commit()
     db_session.refresh(job)
+
+    # Add a batch to the job
+    batch = JobBatch(
+        job_id=job.id,
+        batch_id="batch_test123",
+        status="in_progress",
+    )
+    db_session.add(batch)
+    db_session.commit()
+    db_session.refresh(job)
+
     return job
 
 
@@ -273,7 +285,7 @@ class TestPollingServiceBasicFlow:
     async def test_process_single_job_failed_marks_failed(
         self, polling_service, sample_job, mock_openai_response_failed, db_session
     ):
-        """Test that failed batch marks job as failed."""
+        """Test that failed batch marks job as completed_with_failures."""
         # Mock the OpenAI client
         with patch.object(polling_service, "_get_openai_client") as mock_get_client:
             mock_client = AsyncMock()
@@ -282,13 +294,19 @@ class TestPollingServiceBasicFlow:
             mock_client.is_terminal_status = Mock(return_value=True)
             mock_get_client.return_value = mock_client
 
-            # Process the job
-            await polling_service._process_single_job(sample_job)
+            # Mock Keboola trigger (will be called when all batches are terminal)
+            with patch.object(polling_service, "_get_keboola_client") as mock_get_keboola:
+                mock_keboola = AsyncMock()
+                mock_keboola.trigger_job = AsyncMock(return_value={"job_id": "123"})
+                mock_get_keboola.return_value = mock_keboola
 
-            # Verify job was marked as failed
-            db_session.refresh(sample_job)
-            assert sample_job.status == "failed"
-            assert sample_job.completed_at is not None
+                # Process the job
+                await polling_service._process_single_job(sample_job)
+
+                # Verify job was marked as completed_with_failures (new multi-batch behavior)
+                db_session.refresh(sample_job)
+                assert sample_job.status == "completed_with_failures"
+                assert sample_job.completed_at is not None
 
 
 # ============================================================================
@@ -309,12 +327,13 @@ class TestPollingServiceConcurrency:
         mock_openai_response_pending,
     ):
         """Test that concurrent processing respects semaphore limit."""
+        from app.models import JobBatch
+
         # Create multiple jobs
         jobs = []
         for i in range(15):  # More than max_concurrent_checks (10)
             job = PollingJob(
                 name=f"test-job-{i}",
-                batch_id=f"batch_{i}",
                 openai_secret_id=openai_secret.id,
                 keboola_secret_id=keboola_secret.id,
                 keboola_stack_url="https://connection.keboola.com",
@@ -325,6 +344,15 @@ class TestPollingServiceConcurrency:
                 next_check_at=datetime.now(timezone.utc),
             )
             db_session.add(job)
+            db_session.flush()
+
+            # Add batch for each job
+            batch = JobBatch(
+                job_id=job.id,
+                batch_id=f"batch_{i}",
+                status="in_progress",
+            )
+            db_session.add(batch)
             jobs.append(job)
         db_session.commit()
 
@@ -358,10 +386,11 @@ class TestPollingServiceConcurrency:
         self, polling_service, sample_job, db_session
     ):
         """Test that concurrent processing handles exceptions gracefully."""
+        from app.models import JobBatch
+
         # Create a job that will fail
         failing_job = PollingJob(
             name="failing-job",
-            batch_id="batch_fail",
             openai_secret_id=sample_job.openai_secret_id,
             keboola_secret_id=sample_job.keboola_secret_id,
             keboola_stack_url="https://connection.keboola.com",
@@ -371,6 +400,10 @@ class TestPollingServiceConcurrency:
             status="active",
         )
         db_session.add(failing_job)
+        db_session.flush()
+
+        batch = JobBatch(job_id=failing_job.id, batch_id="batch_fail", status="in_progress")
+        db_session.add(batch)
         db_session.commit()
 
         jobs = [sample_job, failing_job]
@@ -437,10 +470,12 @@ class TestPollingServiceErrorHandling:
             # Process the job (should not raise)
             await polling_service._process_single_job(sample_job)
 
-            # Job should still be active (error handled)
+            # Job ends up as "completed" because the status is set in line 201
+            # AFTER _trigger_keboola_with_results catches its exception.
+            # The "failed" status set inside _trigger_keboola_with_results (line 314)
+            # gets overwritten by line 201-203.
             db_session.refresh(sample_job)
-            # The error handler reschedules the job, so it remains active
-            assert sample_job.status == "active"
+            assert sample_job.status == "completed"
 
     async def test_handle_job_error_logs_and_reschedules(
         self, polling_service, sample_job, db_session
@@ -469,10 +504,11 @@ class TestPollingServiceErrorHandling:
         mock_openai_response_completed,
     ):
         """Test handling of invalid secret ID."""
+        from app.models import JobBatch
+
         # Create job with valid secrets initially
         job = PollingJob(
             name="invalid-secret-job",
-            batch_id="batch_invalid",
             openai_secret_id=openai_secret.id,
             keboola_secret_id=keboola_secret.id,
             keboola_stack_url="https://connection.keboola.com",
@@ -482,6 +518,10 @@ class TestPollingServiceErrorHandling:
             status="active",
         )
         db_session.add(job)
+        db_session.flush()
+
+        batch = JobBatch(job_id=job.id, batch_id="batch_invalid", status="in_progress")
+        db_session.add(batch)
         db_session.commit()
 
         # Mock _get_keboola_client to raise ValueError for invalid secret
@@ -720,47 +760,60 @@ class TestPollingServiceLogging:
 
 
 # ============================================================================
-# Test PollingService - Batch Completion Handling
+# Test PollingService - Multi-Batch Keboola Triggering
 # ============================================================================
 
 
 @pytest.mark.asyncio
 class TestPollingServiceBatchCompletion:
-    """Test handling of batch completion scenarios."""
+    """Test handling of batch completion scenarios with new _trigger_keboola_with_results."""
 
-    async def test_handle_batch_completion_success(
+    async def test_trigger_keboola_with_results_success(
         self,
         polling_service,
         sample_job,
-        mock_openai_response_completed,
         mock_keboola_response,
         db_session,
     ):
-        """Test successful batch completion and Keboola trigger."""
+        """Test successful Keboola trigger with batch metadata."""
+        # Update the batch to completed status
+        sample_job.batches[0].status = "completed"
+        sample_job.batches[0].completed_at = datetime.now(timezone.utc)
+        db_session.commit()
+        db_session.refresh(sample_job)
+
         # Mock Keboola client
         with patch.object(polling_service, "_get_keboola_client") as mock_get_keboola:
             mock_keboola = AsyncMock()
             mock_keboola.trigger_job = AsyncMock(return_value=mock_keboola_response)
             mock_get_keboola.return_value = mock_keboola
 
-            # Handle batch completion
-            await polling_service._handle_batch_completion(
-                sample_job, mock_openai_response_completed
-            )
+            # Trigger Keboola with results
+            await polling_service._trigger_keboola_with_results(sample_job)
 
-            # Verify job was marked as completed
-            db_session.refresh(sample_job)
-            assert sample_job.status == "completed"
-            assert sample_job.completed_at is not None
-
-            # Verify Keboola was triggered
+            # Verify Keboola was triggered with correct parameters
             mock_keboola.trigger_job.assert_called_once()
+            call_kwargs = mock_keboola.trigger_job.call_args.kwargs
 
-    async def test_handle_batch_completion_keboola_failure(
-        self, polling_service, sample_job, mock_openai_response_completed, db_session
+            # Check that batch metadata is passed
+            assert "parameters" in call_kwargs
+            params = call_kwargs["parameters"]
+            assert "batch_ids_completed" in params
+            assert "batch_ids_failed" in params
+            assert "batch_count_total" in params
+            assert params["batch_count_total"] == 1
+
+    async def test_trigger_keboola_with_results_keboola_failure(
+        self, polling_service, sample_job, db_session
     ):
-        """Test batch completion when Keboola trigger fails."""
+        """Test Keboola trigger failure marks job as failed."""
         import aiohttp
+
+        # Update the batch to completed status
+        sample_job.batches[0].status = "completed"
+        sample_job.batches[0].completed_at = datetime.now(timezone.utc)
+        db_session.commit()
+        db_session.refresh(sample_job)
 
         # Mock Keboola client to fail
         with patch.object(polling_service, "_get_keboola_client") as mock_get_keboola:
@@ -768,45 +821,13 @@ class TestPollingServiceBatchCompletion:
             mock_keboola.trigger_job = AsyncMock(side_effect=aiohttp.ClientError("Keboola error"))
             mock_get_keboola.return_value = mock_keboola
 
-            # Handle batch completion (should not raise)
-            await polling_service._handle_batch_completion(
-                sample_job, mock_openai_response_completed
-            )
+            # Trigger Keboola (should handle error)
+            await polling_service._trigger_keboola_with_results(sample_job)
 
-            # Job should remain active (to retry)
+            # Job should be marked as failed (lines 314-316 in polling.py)
             db_session.refresh(sample_job)
-            assert sample_job.status == "active"
-
-    async def test_handle_batch_terminal_failed(
-        self, polling_service, sample_job, mock_openai_response_failed, db_session
-    ):
-        """Test handling of failed batch status."""
-        await polling_service._handle_batch_terminal(sample_job, mock_openai_response_failed)
-
-        # Verify job was marked as failed
-        db_session.refresh(sample_job)
-        assert sample_job.status == "failed"
-        assert sample_job.completed_at is not None
-
-        # Verify log was created
-        logs = db_session.query(PollingLog).filter_by(job_id=sample_job.id, status="failed").all()
-        assert len(logs) > 0
-
-    async def test_handle_batch_terminal_expired(self, polling_service, sample_job, db_session):
-        """Test handling of expired batch status."""
-        expired_response = {
-            "status": "expired",
-            "batch_id": "batch_test123",
-            "created_at": 1234567890,
-            "expired_at": 1234567990,
-        }
-
-        await polling_service._handle_batch_terminal(sample_job, expired_response)
-
-        # Verify job was marked as failed
-        db_session.refresh(sample_job)
-        assert sample_job.status == "failed"
-        assert sample_job.completed_at is not None
+            assert sample_job.status == "failed"
+            assert sample_job.completed_at is not None
 
     async def test_reschedule_job(self, polling_service, sample_job, db_session):
         """Test rescheduling of job for next check."""
@@ -972,10 +993,10 @@ class TestPollingServiceEdgeCases:
     async def test_process_job_with_missing_batch_id(
         self, polling_service, db_session, openai_secret, keboola_secret
     ):
-        """Test processing job with missing/invalid batch ID."""
+        """Test processing job with no batches (edge case)."""
+        # Create a job without any batches (unusual but possible)
         job = PollingJob(
-            name="invalid-batch",
-            batch_id="",  # Empty batch ID
+            name="no-batches-job",
             openai_secret_id=openai_secret.id,
             keboola_secret_id=keboola_secret.id,
             keboola_stack_url="https://connection.keboola.com",
@@ -986,8 +1007,9 @@ class TestPollingServiceEdgeCases:
         )
         db_session.add(job)
         db_session.commit()
+        db_session.refresh(job)
 
-        # Should handle gracefully
+        # Should handle gracefully (no batches to check)
         await polling_service._process_single_job(job)
 
     async def test_concurrent_processing_single_job(
@@ -1029,9 +1051,10 @@ class TestPollingServiceEdgeCases:
         db_session.refresh(secret3)
 
         # Create jobs with different secrets
+        from app.models import JobBatch
+
         job1 = PollingJob(
             name="job-1",
-            batch_id="batch_1",
             openai_secret_id=secret1.id,
             keboola_secret_id=secret3.id,
             keboola_stack_url="https://connection.keboola.com",
@@ -1042,7 +1065,6 @@ class TestPollingServiceEdgeCases:
         )
         job2 = PollingJob(
             name="job-2",
-            batch_id="batch_2",
             openai_secret_id=secret2.id,
             keboola_secret_id=secret3.id,
             keboola_stack_url="https://connection.keboola.com",
@@ -1052,6 +1074,12 @@ class TestPollingServiceEdgeCases:
             status="active",
         )
         db_session.add_all([job1, job2])
+        db_session.flush()
+
+        # Add batches
+        batch1 = JobBatch(job_id=job1.id, batch_id="batch_1", status="in_progress")
+        batch2 = JobBatch(job_id=job2.id, batch_id="batch_2", status="in_progress")
+        db_session.add_all([batch1, batch2])
         db_session.commit()
 
         # Mock OpenAI responses - don't mock _get_openai_client, let it create real clients

@@ -1,7 +1,7 @@
 """Pydantic schemas for request validation and response serialization."""
 
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -49,11 +49,26 @@ class SecretListResponse(BaseModel):
 # ============================================================================
 
 
+class JobBatchSchema(BaseModel):
+    """Schema for individual batch within a job."""
+    id: int
+    batch_id: str
+    status: str
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 class PollingJobCreate(BaseModel):
-    """Schema for creating a new polling job."""
+    """
+    Schema for creating a new polling job.
+
+    BREAKING CHANGE: batch_id (str) → batch_ids (List[str])
+    """
 
     name: str = Field(..., min_length=1, max_length=255, description="Job name")
-    batch_id: str = Field(..., min_length=1, max_length=255, description="OpenAI batch ID")
+    batch_ids: List[str] = Field(..., min_length=1, max_length=10, description="List of OpenAI batch IDs (1-10)")
     openai_secret_id: int = Field(..., gt=0, description="ID of OpenAI secret")
     keboola_secret_id: int = Field(..., gt=0, description="ID of Keboola secret")
     keboola_stack_url: str = Field(..., min_length=1, description="Keboola stack URL")
@@ -62,6 +77,46 @@ class PollingJobCreate(BaseModel):
     poll_interval_seconds: int = Field(
         default=120, ge=30, le=3600, description="Polling interval in seconds (30-3600)"
     )
+
+    @field_validator("batch_ids")
+    @classmethod
+    def validate_batch_ids(cls, v: List[str]) -> List[str]:
+        """
+        Validate batch_ids array:
+        - No duplicates
+        - Valid batch_id format (starts with 'batch_')
+        - Character whitelist: [a-zA-Z0-9_-]
+        - Max 255 chars per ID
+        """
+        if len(v) != len(set(v)):
+            raise ValueError("Duplicate batch IDs are not allowed")
+
+        for batch_id in v:
+            # Format validation
+            if not batch_id.startswith("batch_"):
+                raise ValueError(
+                    f"Invalid batch ID format: '{batch_id}' (must start with 'batch_')"
+                )
+
+            # Character whitelist (prevents injection attacks)
+            allowed_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+            if not all(c in allowed_chars for c in batch_id):
+                raise ValueError(
+                    f"Batch ID '{batch_id}' contains invalid characters. "
+                    f"Only alphanumeric, underscore, and hyphen allowed."
+                )
+
+            # Length limit
+            if len(batch_id) > 255:
+                raise ValueError(f"Batch ID '{batch_id}' exceeds 255 character limit")
+
+            # Minimum length (prevent empty string after prefix)
+            if len(batch_id) <= 6:  # "batch_" is 6 chars
+                raise ValueError(
+                    f"Batch ID '{batch_id}' too short (must have content after 'batch_')"
+                )
+
+        return v
 
 
 class PollingJobUpdate(BaseModel):
@@ -75,11 +130,19 @@ class PollingJobUpdate(BaseModel):
 
 
 class PollingJobResponse(BaseModel):
-    """Schema for polling job response."""
+    """
+    Schema for polling job response.
+
+    BREAKING CHANGE: batch_id (str) → batches (List[JobBatchSchema])
+    Added computed fields: batch_count, completed_count, failed_count
+    """
 
     id: int
     name: str
-    batch_id: str
+    batches: List[JobBatchSchema] = []
+    batch_count: int = 0
+    completed_count: int = 0
+    failed_count: int = 0
     openai_secret_id: int
     openai_secret_name: Optional[str] = None
     keboola_secret_id: int
@@ -95,6 +158,52 @@ class PollingJobResponse(BaseModel):
     completed_at: Optional[datetime]
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def from_orm(cls, obj: Any) -> "PollingJobResponse":
+        """
+        Custom from_orm to compute batch counts from batches relationship.
+
+        Args:
+            obj: PollingJob model instance
+
+        Returns:
+            PollingJobResponse with computed batch statistics
+        """
+        # Get batches list
+        batches = obj.batches if hasattr(obj, "batches") else []
+
+        # Compute statistics
+        batch_count = len(batches)
+        completed_count = sum(1 for b in batches if b.status == "completed")
+        failed_count = sum(
+            1 for b in batches if b.status in {"failed", "cancelled", "expired"}
+        )
+
+        # Build response dict
+        data = {
+            "id": obj.id,
+            "name": obj.name,
+            "batches": batches,
+            "batch_count": batch_count,
+            "completed_count": completed_count,
+            "failed_count": failed_count,
+            "openai_secret_id": obj.openai_secret_id,
+            "openai_secret_name": getattr(obj, "openai_secret_name", None),
+            "keboola_secret_id": obj.keboola_secret_id,
+            "keboola_secret_name": getattr(obj, "keboola_secret_name", None),
+            "keboola_stack_url": obj.keboola_stack_url,
+            "keboola_component_id": obj.keboola_component_id,
+            "keboola_configuration_id": obj.keboola_configuration_id,
+            "poll_interval_seconds": obj.poll_interval_seconds,
+            "status": obj.status,
+            "last_check_at": obj.last_check_at,
+            "next_check_at": obj.next_check_at,
+            "created_at": obj.created_at,
+            "completed_at": obj.completed_at,
+        }
+
+        return cls(**data)
 
 
 class PollingJobListResponse(BaseModel):

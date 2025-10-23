@@ -434,6 +434,8 @@ select.form-control {
 /* Utility Classes */
 .text-muted { color: var(--text-muted); }
 .text-dim { color: var(--text-dim); }
+.text-secondary { color: var(--text-secondary); }
+.text-primary { color: var(--text-primary); }
 .text-success { color: var(--success); }
 .text-error { color: var(--error); }
 .text-warning { color: var(--warning); }
@@ -447,3 +449,94 @@ select.form-control {
 .text-right { text-align: right; }
 
 .hidden { display: none !important; }
+
+/* Batch Status Badges */
+.batch-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  background: rgba(0, 255, 0, 0.05);
+  border: 1px solid var(--text-dim);
+  border-radius: 3px;
+  font-size: 0.85em;
+  color: var(--text-secondary);
+  margin-right: 5px;
+}
+
+.batch-badge.failed {
+  border-color: var(--error);
+  color: var(--error);
+  background: rgba(255, 0, 64, 0.05);
+}
+
+.batch-badge.in-progress {
+  border-color: var(--warning);
+  color: var(--warning);
+  background: rgba(255, 170, 0, 0.05);
+}
+
+/* Batch Status Table */
+.batches-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 15px 0;
+  background: var(--bg-tertiary);
+}
+
+.batches-table th {
+  text-align: left;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--accent-cyan);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.batches-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(0, 255, 0, 0.1);
+  color: var(--text-secondary);
+}
+
+.batches-table tr:hover td {
+  background: rgba(0, 255, 0, 0.05);
+}
+
+/* Batch Status Colors */
+.status-completed {
+  color: var(--success);
+}
+
+.status-failed,
+.status-cancelled,
+.status-expired {
+  color: var(--error);
+}
+
+.status-in_progress,
+.status-validating,
+.status-finalizing {
+  color: var(--warning);
+}
+
+.status-active {
+  color: var(--text-primary);
+}
+
+.status-paused {
+  color: var(--text-dim);
+}
+
+/* Small text helper */
+small {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  display: block;
+  margin-top: 5px;
+}
+
+/* Textarea styling */
+textarea.form-control {
+  resize: vertical;
+  font-family: var(--font-mono);
+  line-height: 1.4;
+}

@@ -47,6 +47,7 @@ class KeboolaClient:
         configuration_id: str,
         component_id: str,
         tag: Optional[str] = None,
+        parameters: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Trigger a Keboola Connection job with automatic retries.
@@ -57,6 +58,7 @@ class KeboolaClient:
             configuration_id: The ID of the configuration to run
             component_id: Component ID (e.g., 'kds-team.app-custom-python')
             tag: Optional tag to identify the job run
+            parameters: Optional dict of parameters to pass to the job (NEW)
 
         Returns:
             Dictionary containing:
@@ -85,6 +87,7 @@ class KeboolaClient:
                     configuration_id=configuration_id,
                     component_id=component_id,
                     tag=tag,
+                    parameters=parameters,
                 )
 
                 logger.info(
@@ -156,6 +159,7 @@ class KeboolaClient:
         configuration_id: str,
         component_id: str,
         tag: Optional[str] = None,
+        parameters: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Execute the actual job trigger API call.
@@ -164,6 +168,7 @@ class KeboolaClient:
             configuration_id: The ID of the configuration to run
             component_id: Component ID (required)
             tag: Optional tag to identify the job run
+            parameters: Optional dict of parameters to pass to the job (NEW)
 
         Returns:
             Dictionary with job information
@@ -192,6 +197,12 @@ class KeboolaClient:
 
         if tag:
             payload["tag"] = tag
+
+        # NEW: Add parameters if provided
+        if parameters:
+            payload["configData"] = {
+                "parameters": parameters
+            }
 
         # Create timeout
         timeout = aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT)
