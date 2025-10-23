@@ -76,3 +76,6 @@ alembic.ini
 # Backup files
 *.bak
 *.backup
+
+# Docker
+.dockerignore

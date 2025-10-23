@@ -1,0 +1,88 @@
+services:
+  teckochecker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: teckochecker:latest
+    container_name: teckochecker
+    restart: unless-stopped
+
+    # Port mapping for API
+    ports:
+      - "8000:8000"
+
+    # Environment variables
+    environment:
+      # Database location
+      - DATABASE_URL=sqlite:////data/teckochecker.db
+
+      # API configuration
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+
+      # Polling intervals (seconds)
+      - DEFAULT_POLL_INTERVAL=60
+      - RETRY_DELAY=300
+
+      # Encryption key - MUST be set
+      # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required}
+
+    # Persistent volumes
+    volumes:
+      # Database persistence
+      - teckochecker-data:/data
+
+      # Optional: Mount .env file for additional configuration
+      # - ./.env:/app/.env:ro
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health').read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Resource limits (optional, adjust as needed)
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # Optional: Debug variant with shell access
+  teckochecker-debug:
+    build:
+      context: .
+      dockerfile: Dockerfile.debug
+    image: teckochecker:debug
+    container_name: teckochecker-debug
+    restart: "no"
+    profiles:
+      - debug
+
+    ports:
+      - "8000:8000"
+
+    environment:
+      - DATABASE_URL=sqlite:////data/teckochecker.db
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - DEFAULT_POLL_INTERVAL=60
+      - RETRY_DELAY=300
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required}
+
+    volumes:
+      - teckochecker-data:/data
+
+    # Override entrypoint for debugging
+    entrypoint: ["/busybox/sh"]
+    command: []
+
+volumes:
+  teckochecker-data:
+    driver: local
