@@ -124,8 +124,20 @@ If you encounter errors:
 3. Ensure your requests are properly formatted
 4. Monitor the error_file_id if batch fails
 
+## Keboola Integration Demo
+
+This directory also contains a **Keboola Custom Python Script** (`main.py`) that demonstrates how to receive batch completion metadata from TeckoChecker.
+
+**Use case**: When TeckoChecker finishes monitoring your OpenAI batches, it can automatically trigger a Keboola configuration with batch metadata (completed/failed batch IDs, counts, etc.).
+
+See [README_KEBOOLA.md](README_KEBOOLA.md) for:
+- How to set up the Keboola Custom Python configuration
+- How to connect TeckoChecker to trigger Keboola jobs
+- Example customizations (download results, send notifications, write to Storage)
+
 ## Links
 
 - [OpenAI Batch API Docs](https://platform.openai.com/docs/guides/batch)
 - [API Reference](https://platform.openai.com/docs/api-reference/batch)
 - [Get API Key](https://platform.openai.com/api-keys)
+- [Keboola Integration Guide](README_KEBOOLA.md)
