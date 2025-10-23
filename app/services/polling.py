@@ -286,8 +286,7 @@ class PollingService:
             trigger_result = await keboola_client.trigger_job(
                 configuration_id=job.keboola_configuration_id,
                 component_id=job.keboola_component_id,
-                tag=f"teckochecker-{job_id}",
-                parameters=parameters  # NEW: Pass batch metadata
+                parameters=parameters  # Pass batch metadata
             )
 
             logger.info(
