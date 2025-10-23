@@ -207,6 +207,15 @@ class KeboolaClient:
         # Create timeout
         timeout = aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT)
 
+        # DEBUG: Log the exact payload being sent to Keboola
+        logger.info("=" * 80)
+        logger.info("KEBOOLA API REQUEST DEBUG")
+        logger.info("=" * 80)
+        logger.info(f"Endpoint: {endpoint}")
+        logger.info(f"Payload: {payload}")
+        logger.info(f"Headers: {{'X-StorageApi-Token': '***REDACTED***'}}")
+        logger.info("=" * 80)
+
         # Execute the request
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(endpoint, json=payload, headers=headers) as response:
@@ -215,6 +224,14 @@ class KeboolaClient:
 
                 # Parse response
                 data = await response.json()
+
+                # DEBUG: Log the response
+                logger.info("=" * 80)
+                logger.info("KEBOOLA API RESPONSE DEBUG")
+                logger.info("=" * 80)
+                logger.info(f"Status: {response.status}")
+                logger.info(f"Response: {data}")
+                logger.info("=" * 80)
 
                 # Parse and normalize the response
                 return self._parse_job_response(data, configuration_id)
