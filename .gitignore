@@ -71,6 +71,7 @@ alembic.ini
 *~
 .DS_Store
 .playwright-mcp/
+.ruff_cache/
 
 # Backup files
 *.bak

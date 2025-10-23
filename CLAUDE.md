@@ -138,13 +138,14 @@ teckochecker/
 ```
 
 ### Version
-Current version: 1.0.0
+Current version: 0.9.5
 
-**Breaking Changes in v1.0.0**:
+**New in v0.9.5 (Multi-Batch Feature)**:
 - API now accepts `batch_ids` (array) instead of `batch_id` (string)
 - Responses include `batches` array with individual batch status
-- CLI `--batch-id` flag can be repeated for multi-batch jobs
-- See `docs/MIGRATION_v0.9_to_v1.0.md` for migration guide
+- CLI `--batch-id` flag can be repeated for multi-batch jobs (1-10 batches)
+- Web UI shows batch completion ratios and auto-refreshes
+- See `docs/MIGRATION_v0.9_to_v1.0.md` for migration guide from v0.9.0
 
 ## Known Limitations
 
