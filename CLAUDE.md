@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-TeckoChecker is a polling orchestration system that monitors OpenAI batch job statuses and triggers Keboola Connection jobs upon completion. Built with Python 3.11+, FastAPI, SQLite, and featuring both REST API and CLI interfaces.
+TeckoChecker is a polling orchestration system that monitors OpenAI batch job statuses and triggers Keboola Connection jobs upon completion. Built with Python 3.11+, FastAPI, SQLite, and featuring both REST API, CLI, and Web UI interfaces.
+
+**Key Feature**: Multi-batch monitoring - track up to 10 OpenAI batch jobs per polling job, with automatic Keboola triggering when all batches complete.
 
 The project was inspired by the idea of Tomáš Trnka (tomas.trnka@live.com), who is the spiritual father of this repository.
 
@@ -31,14 +33,17 @@ The system follows a strict layered architecture with clear separation of concer
 
 4. **Data Layer** (`app/models.py`, `app/database.py`)
    - SQLAlchemy 2.0 models with modern declarative syntax
-   - Three core tables: secrets, polling_jobs, polling_logs
-   - Relationships use lazy loading to avoid circular imports
+   - Four core tables: secrets, polling_jobs, job_batches, polling_logs
+   - Multi-batch support: job_batches table tracks individual batch status
+   - Relationships use lazy/joined loading strategies to optimize queries
 
 ### Critical Design Patterns
 
+- **Multi-Batch Processing**: Each polling job can monitor 1-10 batch IDs concurrently
 - **Singleton Encryption**: Single EncryptionService instance initialized once with master key
 - **Lazy Model Imports**: Models imported inside methods to avoid circular dependencies
 - **Async Polling Loop**: Uses semaphore (max 10 concurrent) for API rate limiting
+- **Concurrent Batch Checks**: Multiple batches checked in parallel with asyncio.gather()
 - **Client Caching**: Reuses API clients per secret to minimize connection overhead
 - **Graceful Shutdown**: Interruptible sleep for responsive daemon termination
 
@@ -78,7 +83,14 @@ The application requires a `.env` file with `SECRET_KEY` (Fernet encryption for 
 
 ## Polling Engine
 
-Continuous asyncio loop checks OpenAI batch status and triggers Keboola jobs on completion. Jobs processed concurrently (max 10 via semaphore), with individual poll intervals and automatic rescheduling.
+Continuous asyncio loop checks OpenAI batch statuses and triggers Keboola jobs when all batches complete.
+
+**Multi-Batch Flow**:
+1. Jobs processed concurrently (max 10 via semaphore)
+2. Each job checks multiple batches in parallel with asyncio.gather()
+3. When all batches reach terminal state, Keboola is triggered with metadata
+4. Metadata includes: batch_ids_completed, batch_ids_failed, counts
+5. Individual poll intervals and automatic rescheduling
 
 ## Error Handling
 
@@ -108,19 +120,31 @@ Exponential backoff for API errors, no retry for 4xx (except 429). Database erro
   - Secrets: `{"secrets": [...], "total": 0}`
   - Jobs: `{"jobs": [...], "total": 0}`
 - CLI must extract the array: `data.get("secrets", [])`
+- Job responses include multi-batch fields:
+  - `batches`: Array of JobBatchSchema objects
+  - `batch_count`: Total number of batches
+  - `completed_count`: Count of completed batches
+  - `failed_count`: Count of failed/cancelled/expired batches
 
 ### Project Structure
 ```
 teckochecker/
 ├── app/            # Core: api/, cli/, services/, integrations/, models.py, web/
-├── docs/           # PRD, architecture, user guides
+├── demo/           # OpenAI Batch API and Keboola integration demos
+├── docs/           # PRD, architecture, user guides, migration guides
 ├── tests/          # Unit and integration tests
 ├── Makefile        # Development automation
 └── teckochecker.py # CLI entry point
 ```
 
 ### Version
-Current version: 0.9.0
+Current version: 1.0.0
+
+**Breaking Changes in v1.0.0**:
+- API now accepts `batch_ids` (array) instead of `batch_id` (string)
+- Responses include `batches` array with individual batch status
+- CLI `--batch-id` flag can be repeated for multi-batch jobs
+- See `docs/MIGRATION_v0.9_to_v1.0.md` for migration guide
 
 ## Known Limitations
 
@@ -132,3 +156,20 @@ Current version: 0.9.0
 ### Deployment
 - Single-tenant, admin-only access (no multi-user auth in MVP)
 - SQLite database (PostgreSQL-ready for future scaling)
+
+## Demo Scripts
+
+The `demo/` directory contains practical examples:
+
+1. **OpenAI Batch API Demo** (`openai_batch_demo.py`)
+   - Standalone script for testing OpenAI Batch API
+   - Creates, monitors, and downloads batch results
+   - See `demo/README_OPENAI.md`
+
+2. **Keboola Integration Demo** (`keboola_batch_handler.py`)
+   - Keboola Custom Python script receives batch metadata from TeckoChecker
+   - Processes completion notifications with batch IDs and counts
+   - Deploy to Keboola Custom Python component
+   - See `demo/README_KEBOOLA.md`
+
+Both demos are documented in `demo/README.md` with quick start instructions.
