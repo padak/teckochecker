@@ -6,7 +6,58 @@ class TeckoApp {
     constructor() {
         this.jobsRefreshInterval = null;  // Auto-refresh for jobs tab
         this.currentTab = 'jobs';  // Track active tab
-        this.init();
+        this.checkAuth();
+    }
+
+    /**
+     * Check authentication and show login if needed
+     */
+    checkAuth() {
+        if (!api.hasCredentials()) {
+            this.showLoginModal();
+        } else {
+            this.init();
+        }
+    }
+
+    /**
+     * Show login modal
+     */
+    showLoginModal() {
+        const modal = document.getElementById('login-modal');
+        modal.style.display = 'block';
+        modal.classList.add('active');
+
+        const form = document.getElementById('login-form');
+        form.addEventListener('submit', (e) => this.handleLogin(e));
+    }
+
+    /**
+     * Handle login form submission
+     */
+    async handleLogin(e) {
+        e.preventDefault();
+        const username = document.getElementById('login-username').value;
+        const password = document.getElementById('login-password').value;
+
+        // Set credentials in API client
+        api.setCredentials(username, password);
+
+        // Try to validate by making a test request
+        try {
+            await api.getHealth();
+
+            // Success! Hide modal and initialize app
+            const modal = document.getElementById('login-modal');
+            modal.style.display = 'none';
+            modal.classList.remove('active');
+
+            this.init();
+        } catch (error) {
+            // Login failed
+            api.clearCredentials();
+            alert('Login failed. Please check your username and password.');
+        }
     }
 
     /**

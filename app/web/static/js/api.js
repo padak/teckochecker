@@ -5,6 +5,42 @@
 class TeckoAPI {
     constructor(baseUrl = '/api') {
         this.baseUrl = baseUrl;
+        this.credentials = null;
+        this.loadCredentials();
+    }
+
+    /**
+     * Load credentials from sessionStorage
+     */
+    loadCredentials() {
+        const stored = sessionStorage.getItem('tecko_credentials');
+        if (stored) {
+            this.credentials = stored;
+        }
+    }
+
+    /**
+     * Set credentials for authentication
+     */
+    setCredentials(username, password) {
+        const encoded = btoa(`${username}:${password}`);
+        this.credentials = encoded;
+        sessionStorage.setItem('tecko_credentials', encoded);
+    }
+
+    /**
+     * Check if credentials are set
+     */
+    hasCredentials() {
+        return this.credentials !== null;
+    }
+
+    /**
+     * Clear credentials
+     */
+    clearCredentials() {
+        this.credentials = null;
+        sessionStorage.removeItem('tecko_credentials');
     }
 
     /**
@@ -17,6 +53,11 @@ class TeckoAPI {
                 'Content-Type': 'application/json',
             },
         };
+
+        // Add Authorization header if credentials are available
+        if (this.credentials) {
+            options.headers['Authorization'] = `Basic ${this.credentials}`;
+        }
 
         if (body) {
             options.body = JSON.stringify(body);
