@@ -1,0 +1,36 @@
+# Caddyfile - Let's Encrypt with manual certificates
+#
+# Use this if you want Let's Encrypt but don't want to expose port 80
+#
+# Setup:
+# 1. Temporarily open port 80 in AWS Security Group
+# 2. Start Caddy to obtain certificate
+# 3. Close port 80 in AWS Security Group
+# 4. Caddy will auto-renew (opens port 80 only during renewal)
+
+tt.keboola.ai {
+    # Automatic Let's Encrypt certificate
+    # Caddy will handle HTTP-01 challenge on port 80
+    # After initial setup, you can close port 80 until renewal
+
+    # Reverse proxy to TeckoChecker API
+    reverse_proxy teckochecker:8000
+
+    # Enable gzip compression
+    encode gzip
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    # Logging
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
+}

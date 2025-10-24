@@ -1,9 +1,12 @@
-# Caddyfile - Reverse proxy with automatic HTTPS
+# Caddyfile - HTTPS only with self-signed certificate
 #
 # Domain: tt.keboola.ai → 3.87.218.72
-# Caddy will automatically obtain Let's Encrypt certificate
+# Note: Using self-signed cert (browser will show warning)
+# For Let's Encrypt, port 80 must be open temporarily
 
 tt.keboola.ai {
+    # Use self-signed certificate (no port 80 needed)
+    tls internal
     # Reverse proxy to TeckoChecker API
     reverse_proxy teckochecker:8000
 

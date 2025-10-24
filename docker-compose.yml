@@ -83,15 +83,14 @@ services:
     entrypoint: ["/busybox/sh"]
     command: []
 
-  # Caddy reverse proxy with automatic HTTPS
+  # Caddy reverse proxy with HTTPS only (no port 80)
   caddy:
     image: caddy:2-alpine
     container_name: teckochecker-caddy
     restart: unless-stopped
 
     ports:
-      - "80:80"      # HTTP (for Let's Encrypt challenge)
-      - "443:443"    # HTTPS
+      - "443:443"    # HTTPS only
       - "443:443/udp" # HTTP/3
 
     volumes:
