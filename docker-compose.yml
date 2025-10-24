@@ -57,49 +57,22 @@ services:
           cpus: '0.25'
           memory: 128M
 
-  # Optional: Debug variant with shell access
-  teckochecker-debug:
-    build:
-      context: .
-      dockerfile: Dockerfile.debug
-    image: teckochecker:debug
-    container_name: teckochecker-debug
-    restart: "no"
-    profiles:
-      - debug
-
-    ports:
-      - "8000:8000"
-
-    environment:
-      - DATABASE_URL=sqlite:////data/teckochecker.db
-      - API_HOST=0.0.0.0
-      - API_PORT=8000
-      - DEFAULT_POLL_INTERVAL=60
-      - RETRY_DELAY=300
-      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required}
-
-    volumes:
-      - teckochecker-data:/data
-
-    # Override entrypoint for debugging
-    entrypoint: ["/busybox/sh"]
-    command: []
-
-  # Caddy reverse proxy with HTTPS only (no port 80)
+  # Caddy reverse proxy with HTTPS (and HTTP for Let's Encrypt)
   caddy:
     image: caddy:2-alpine
     container_name: teckochecker-caddy
     restart: unless-stopped
 
     ports:
-      - "443:443"    # HTTPS only
+      - "80:80"       # HTTP (for Let's Encrypt ACME challenge)
+      - "443:443"     # HTTPS
       - "443:443/udp" # HTTP/3
 
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+      - caddy-logs:/var/log/caddy
 
     depends_on:
       - teckochecker
@@ -119,4 +92,6 @@ volumes:
   caddy-data:
     driver: local
   caddy-config:
+    driver: local
+  caddy-logs:
     driver: local
