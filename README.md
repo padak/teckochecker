@@ -60,7 +60,7 @@ open http://127.0.0.1:8000/web
 
 ## Web Interface
 
-TeckoChecker includes a terminal-style web UI for managing the system:
+TeckoChecker includes a terminal-style web UI with a retro hacker aesthetic:
 
 ```bash
 # Start the server
@@ -70,22 +70,57 @@ python teckochecker.py start
 open http://127.0.0.1:8000/web
 ```
 
-The Web UI provides:
-- 🔐 **Secrets Management** - Add, list, and delete encrypted credentials
-- 📋 **Jobs Dashboard** - Create, monitor, pause/resume polling jobs
-- 📊 **Real-time Monitoring** - System stats and activity feed
-- 📜 **Log Viewer** - Tail-like log display with auto-refresh
+### Features
+
+- 🔐 **Secrets Management** - Encrypted credentials (AES-256) for OpenAI and Keboola APIs
+- 📋 **Jobs Dashboard** - Multi-batch job creation and monitoring
+- 🎮 **Easter Eggs** - Hidden terminal commands (type `help` in the terminal)
+- 🔧 **Keboola Setup** - Integration guide with variables and sample scripts
 - ⚙️ **System Info** - Health checks and API documentation
 
-See [docs/prd.md](docs/prd.md) Web UI Requirements section for detailed documentation.
+### Screenshots
+
+<table>
+  <tr>
+    <td><img src="docs/img/secrets.png" alt="Secrets Management" width="400"/><br/><em>Secrets Management</em></td>
+    <td><img src="docs/img/new_job.png" alt="Create Job" width="400"/><br/><em>Create Multi-Batch Job</em></td>
+  </tr>
+  <tr>
+    <td><img src="docs/img/job_detail.png" alt="Job Detail" width="400"/><br/><em>Job Monitoring</em></td>
+    <td><img src="docs/img/api.png" alt="API Docs" width="400"/><br/><em>API Documentation</em></td>
+  </tr>
+</table>
+
+See [docs/WEB_UI.md](docs/WEB_UI.md) for detailed Web UI documentation.
+
+## Production Deployment
+
+TeckoChecker can be deployed to AWS EC2 with Docker Compose and Caddy:
+
+```bash
+# Docker Compose with Caddy reverse proxy
+docker-compose up -d
+
+# Features:
+# - Automatic HTTPS with Let's Encrypt
+# - Basic Authentication (username/password)
+# - Rate limiting (SlowAPI)
+# - CORS configuration
+```
+
+See [Caddyfile.example](Caddyfile.example) for deployment template.
+
+**Live Demo:** https://tt.keboola.ai/web/
 
 ## Documentation
 
-- [docs/prd.md](docs/prd.md) - Product requirements, specifications, and Web UI documentation
-- [docs/SETUP.md](docs/SETUP.md) - Detailed setup and configuration instructions
-- [docs/USER_GUIDE.md](docs/USER_GUIDE.md) - Comprehensive usage guide with multi-batch examples
-- [docs/MIGRATION_v0.9_to_v1.0.md](docs/MIGRATION_v0.9_to_v1.0.md) - Migration guide from v0.9.x to v1.0
-- [docs/architecture/](docs/architecture/) - Technical architecture and design patterns
+- [docs/SETUP.md](docs/SETUP.md) - Setup and configuration guide
+- [docs/USER_GUIDE.md](docs/USER_GUIDE.md) - Usage guide with multi-batch examples
+- [docs/WEB_UI.md](docs/WEB_UI.md) - Web UI documentation
+- [docs/EASTER_EGGS.md](docs/EASTER_EGGS.md) - Hidden terminal commands
+- [docs/prd.md](docs/prd.md) - Product requirements and specifications
+- [docs/architecture/](docs/architecture/) - Technical architecture
+- [CHANGELOG.md](CHANGELOG.md) - Version history and release notes
 
 ## Development
 
