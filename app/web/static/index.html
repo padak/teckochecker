@@ -20,8 +20,7 @@
         <nav class="nav-tabs">
             <button class="nav-tab active" data-tab="secrets">Secrets</button>
             <button class="nav-tab" data-tab="jobs">Jobs</button>
-            <button class="nav-tab" data-tab="monitor">Monitor</button>
-            <button class="nav-tab" data-tab="logs">Logs</button>
+            <button class="nav-tab" data-tab="keboola">Keboola Setup</button>
             <button class="nav-tab" data-tab="system">System</button>
         </nav>
 
@@ -79,42 +78,41 @@
             </div>
         </div>
 
-        <!-- Monitor Tab -->
-        <div id="monitor" class="tab-content">
+        <!-- Keboola Setup Tab -->
+        <div id="keboola" class="tab-content">
             <div class="terminal-window">
                 <div class="terminal-header">
-                    <span class="terminal-title">> system monitor</span>
+                    <span class="terminal-title">> Keboola Integration Setup</span>
                 </div>
                 <div class="terminal-body">
-                    <div class="btn-group">
-                        <button class="btn" onclick="app.loadStats()">↻ Refresh</button>
-                    </div>
-                    <div id="stats-display">
-                        <h3 class="text-muted mb-10">> system status</h3>
-                        <div id="system-status"></div>
+                    <h3>> Step 1: Configure Variables in Keboola</h3>
+                    <p>Add these variables in your Keboola Custom Python component configuration:</p>
+                    <pre class="code-block">
+batch_ids_completed
+batch_ids_failed
+batch_count_total
+batch_count_completed
+batch_count_failed</pre>
 
-                        <h3 class="text-muted mb-10 mt-20">> recent activity</h3>
-                        <div class="log-viewer" id="recent-activity"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
+                    <h3>> Step 2: Configure User Parameters</h3>
+                    <p>Add this JSON to your User Parameters section:</p>
+                    <pre class="code-block">{
+  "batch_ids_completed": "{{ batch_ids_completed }}",
+  "batch_ids_failed": "{{ batch_ids_failed }}",
+  "batch_count_total": "{{ batch_count_total }}",
+  "batch_count_completed": "{{ batch_count_completed }}",
+  "batch_count_failed": "{{ batch_count_failed }}"
+}</pre>
 
-        <!-- Logs Tab -->
-        <div id="logs" class="tab-content">
-            <div class="terminal-window">
-                <div class="terminal-header">
-                    <span class="terminal-title">> polling logs</span>
-                </div>
-                <div class="terminal-body">
-                    <div class="btn-group">
-                        <button class="btn btn-primary" onclick="app.toggleAutoRefresh()">
-                            <span id="auto-refresh-btn">⏸ Auto-refresh</span>
-                        </button>
-                        <button class="btn" onclick="app.loadLogs()">↻ Refresh</button>
-                        <button class="btn" onclick="app.clearLogs()">✕ Clear</button>
-                    </div>
-                    <div class="log-viewer" id="logs-display"></div>
+                    <h3>> Step 3: Use Sample Script</h3>
+                    <p>Download and customize the sample Python script that receives batch metadata:</p>
+                    <a href="https://github.com/padak/teckochecker/blob/main/demo/keboola_batch_handler.py"
+                       target="_blank"
+                       class="btn btn-primary">
+                        View Sample Script on GitHub
+                    </a>
+
+                    <p class="note">The script will receive variables as parameters and can process batch completion events.</p>
                 </div>
             </div>
         </div>
@@ -238,6 +236,7 @@ POST /api/jobs/{id}/resume    Resume job</pre>
 
     <!-- Scripts -->
     <script src="/web/static/js/api.js"></script>
+    <script src="/web/static/js/snake.js"></script>
     <script src="/web/static/js/app.js"></script>
 </body>
 </html>

@@ -5,6 +5,74 @@ All notable changes to TeckoChecker will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.6] - 2025-01-24
+
+### Added
+
+**Keboola Integration Setup Guide**
+- New "Keboola Setup" tab in Web UI with step-by-step integration instructions
+- Variables configuration template for Keboola Custom Python component
+- User Parameters JSON template with proper variable mapping
+- Direct link to sample Python script (`keboola_batch_handler.py`) on GitHub
+- Complete guide for receiving batch metadata from TeckoChecker
+
+**Easter Egg Terminal Commands** 🎮
+- Interactive terminal input now functional at bottom of Web UI
+- Type `help` to discover hidden commands
+- Classic retro game included - try `snake` for a surprise!
+- Additional fun commands for entertainment
+- Credits command featuring Tomáš Trnka (spiritual father of TeckoChecker)
+
+### Changed
+
+**Web UI Cleanup**
+- Removed non-functional "Monitor" tab (no `/api/monitor` endpoint)
+- Removed non-functional "Logs" tab (incompatible with Docker deployment)
+- Cleaner navigation: Secrets → Jobs → Keboola Setup → System
+- Reduced UI clutter and improved focus on core functionality
+
+### Security
+
+**Rate Limiting** (implemented but inactive in production)
+- SlowAPI integration for application-level rate limiting
+- Configurable limits: 200/min (GET), 50/min (POST/PUT/DELETE)
+- IP-based with X-Forwarded-For support for proxies
+- `/api/health` exempt for monitoring tools
+- Note: Currently not enforcing in production (requires investigation)
+
+**CORS Configuration**
+- CORS disabled by default (same-origin only)
+- Web UI and API served from same origin, no CORS needed
+- Configurable via `.env` for external tools if needed
+- Security: Prevents `CORS_ORIGINS=["*"]` with credentials
+
+**Deployment Security**
+- `Caddyfile` moved to `.gitignore` (contains password hashes)
+- `Caddyfile.example` template provided for deployment
+- Basic Authentication via Caddy for all endpoints (except `/api/health`)
+- Let's Encrypt HTTPS with automatic certificate renewal
+
+### Fixed
+
+**Docker Compose**
+- Removed debug service (not needed in production)
+- Added port 80 for Let's Encrypt ACME challenge
+- Added `caddy-logs` volume for persistent logging
+- Cleaner production configuration
+
+### Documentation
+
+**Deployment**
+- Updated `CLAUDE.md` with Caddyfile setup instructions
+- Added password hash generation command
+- Documented port 80 requirement for Let's Encrypt
+- Clarified which files are gitignored vs tracked
+
+**Project Structure**
+- Documented deployment files in project structure
+- Added notes about local configuration files
+- Improved developer onboarding documentation
+
 ## [0.9.0] - 2025-01-22
 
 ### Added - Web UI 🎉

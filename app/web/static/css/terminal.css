@@ -540,3 +540,159 @@ textarea.form-control {
   font-family: var(--font-mono);
   line-height: 1.4;
 }
+
+/* Code Block */
+.code-block {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-dim);
+  border-left: 3px solid var(--text-primary);
+  padding: 15px;
+  margin: 15px 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-secondary);
+  overflow-x: auto;
+  line-height: 1.6;
+}
+
+/* Note */
+.note {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-top: 15px;
+  padding: 10px;
+  border-left: 2px solid var(--text-dim);
+  background: rgba(0, 255, 0, 0.02);
+}
+
+/* Keboola Setup Tab Specific */
+#keboola h3 {
+  color: var(--text-primary);
+  margin-top: 30px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+#keboola h3:first-child {
+  margin-top: 0;
+}
+
+#keboola p {
+  color: var(--text-secondary);
+  margin: 10px 0;
+  line-height: 1.6;
+}
+
+#keboola a.btn {
+  display: inline-block;
+  margin: 15px 0;
+  text-decoration: none;
+}
+
+/* ==================== Snake Game & Easter Eggs ==================== */
+
+/* Game Container */
+.game-container {
+  max-width: 500px !important;
+  text-align: center;
+  padding: 30px;
+  background: var(--bg-primary);
+}
+
+.game-title {
+  color: var(--accent-cyan);
+  font-size: 24px;
+  margin-bottom: 10px;
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+  letter-spacing: 3px;
+}
+
+.game-instructions {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-bottom: 20px;
+}
+
+#snake-canvas {
+  border: 2px solid var(--border);
+  box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
+  display: block;
+  margin: 0 auto;
+  background: var(--bg-primary);
+}
+
+.game-score {
+  color: var(--text-primary);
+  font-size: 18px;
+  margin-top: 20px;
+  text-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
+}
+
+.game-over {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--error);
+  font-size: 32px;
+  text-align: center;
+  text-shadow: 0 0 20px rgba(255, 0, 64, 0.8);
+  letter-spacing: 4px;
+  animation: pulse 1s infinite;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.8);
+  padding: 20px 40px;
+  border: 2px solid var(--error);
+}
+
+/* Hack Terminal */
+.hack-terminal {
+  max-width: 700px !important;
+  background: var(--bg-primary);
+  min-height: 400px;
+}
+
+.hack-output {
+  font-family: var(--font-mono);
+  text-align: left;
+  padding: 20px;
+  min-height: 350px;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.hack-line {
+  color: var(--text-primary);
+  margin-bottom: 5px;
+  animation: fadeIn 0.3s ease;
+}
+
+/* Matrix Effect */
+.matrix-container {
+  max-width: 90vw !important;
+  max-height: 90vh !important;
+  padding: 20px;
+  background: var(--bg-primary);
+  position: relative;
+}
+
+#matrix-canvas {
+  display: block;
+  border: 2px solid var(--border);
+  box-shadow: 0 0 30px rgba(0, 255, 0, 0.3);
+}
+
+.matrix-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--text-primary);
+  font-size: 32px;
+  text-align: center;
+  text-shadow: 0 0 20px rgba(0, 255, 65, 0.8);
+  letter-spacing: 4px;
+  z-index: 10;
+  pointer-events: none;
+  animation: pulse 2s infinite;
+}

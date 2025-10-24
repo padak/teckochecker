@@ -4,8 +4,6 @@
 
 class TeckoApp {
     constructor() {
-        this.autoRefreshInterval = null;
-        this.autoRefreshEnabled = false;
         this.jobsRefreshInterval = null;  // Auto-refresh for jobs tab
         this.currentTab = 'jobs';  // Track active tab
         this.init();
@@ -32,7 +30,6 @@ class TeckoApp {
         // Load initial data
         this.loadSecrets();
         this.loadJobs();
-        this.loadStats();
         this.loadHealth();
 
         // Start auto-refresh for jobs (default tab)
@@ -70,11 +67,8 @@ class TeckoApp {
                 this.loadJobs();
                 this.startJobsAutoRefresh();  // Start auto-refresh for jobs
                 break;
-            case 'monitor':
-                this.loadStats();
-                break;
-            case 'logs':
-                this.loadLogs();
+            case 'keboola':
+                // Keboola Setup tab - static content, no loading needed
                 break;
             case 'system':
                 this.loadHealth();
@@ -428,78 +422,6 @@ class TeckoApp {
         }
     }
 
-    // ==================== Monitor ====================
-
-    async loadStats() {
-        try {
-            const stats = await api.getStats();
-            this.renderStats(stats);
-        } catch (error) {
-            this.showError('Failed to load stats', error);
-        }
-    }
-
-    renderStats(stats) {
-        const statusDiv = document.getElementById('system-status');
-        const activityDiv = document.getElementById('recent-activity');
-
-        statusDiv.innerHTML = `
-            <div class="mb-10">
-                <span class="status-dot active"></span>
-                <span class="text-success">SYSTEM RUNNING</span>
-            </div>
-            <div class="text-secondary mb-10">Active Jobs: <span class="text-primary">${stats.active_jobs || 0}</span></div>
-            <div class="text-secondary mb-10">Total Jobs: <span class="text-primary">${stats.total_jobs || 0}</span></div>
-            <div class="text-secondary">Database: <span class="text-dim">${stats.database || 'sqlite'}</span></div>
-        `;
-
-        // Show recent polling logs if available
-        this.loadLogs(10); // Load last 10 logs
-    }
-
-    // ==================== Logs ====================
-
-    async loadLogs(limit = 50) {
-        try {
-            // For now, we'll fetch jobs and show their status
-            // In a real implementation, you'd have a logs endpoint
-            const result = await api.getJobs();
-            const jobs = result.jobs || [];
-
-            const activityDiv = document.getElementById('recent-activity');
-            const logsDiv = document.getElementById('logs-display');
-
-            const logLines = jobs.slice(0, limit).map(job => {
-                const timestamp = this.formatTimestamp(job.last_check_at || job.created_at);
-                const level = job.status === 'failed' ? 'error' : job.status === 'active' ? 'info' : 'success';
-                return `<div class="log-line ${level}">[${timestamp}] Job #${job.id} (${job.name}) - Status: ${job.status}</div>`;
-            }).join('');
-
-            if (activityDiv) activityDiv.innerHTML = logLines || '<div class="text-muted">No recent activity</div>';
-            if (logsDiv) logsDiv.innerHTML = logLines || '<div class="text-muted">No logs available</div>';
-        } catch (error) {
-            this.showError('Failed to load logs', error);
-        }
-    }
-
-    toggleAutoRefresh() {
-        this.autoRefreshEnabled = !this.autoRefreshEnabled;
-        const btn = document.getElementById('auto-refresh-btn');
-
-        if (this.autoRefreshEnabled) {
-            btn.textContent = '▶ Auto-refresh ON';
-            this.autoRefreshInterval = setInterval(() => this.loadLogs(), 5000);
-        } else {
-            btn.textContent = '⏸ Auto-refresh OFF';
-            if (this.autoRefreshInterval) {
-                clearInterval(this.autoRefreshInterval);
-            }
-        }
-    }
-
-    clearLogs() {
-        document.getElementById('logs-display').innerHTML = '<div class="text-muted">Logs cleared</div>';
-    }
 
     // ==================== System ====================
 
@@ -614,7 +536,63 @@ class TeckoApp {
 
         switch(cmd) {
             case 'help':
-                alert('Available commands:\nhelp - Show this help\nrefresh - Refresh current tab\nclear - Clear command input');
+                this.showTerminalOutput([
+                    '> TECKOCHECKER TERMINAL v0.9.5',
+                    '',
+                    'AVAILABLE COMMANDS:',
+                    '  help     - Show this help message',
+                    '  about    - About TeckoChecker',
+                    '  credits  - Show credits',
+                    '  snake    - Play Snake game',
+                    '  hack     - Initiate hacking sequence',
+                    '  matrix   - Enter the Matrix',
+                    '  refresh  - Refresh current tab',
+                    '  clear    - Clear terminal',
+                    '',
+                    'Type any command and press ENTER'
+                ]);
+                break;
+            case 'about':
+                this.showTerminalOutput([
+                    '> TECKOCHECKER',
+                    '',
+                    'A polling orchestration system for async workflows.',
+                    '',
+                    'Features:',
+                    '  - Multi-batch OpenAI job monitoring',
+                    '  - Automatic Keboola integration',
+                    '  - Real-time status tracking',
+                    '  - REST API + CLI + Web UI',
+                    '',
+                    'Version: 0.9.5',
+                    'License: MIT',
+                    'Repository: github.com/padak/teckochecker'
+                ]);
+                break;
+            case 'credits':
+                this.showTerminalOutput([
+                    '> CREDITS',
+                    '',
+                    'Inspired by: Tomas Trnka (tomas.trnka@live.com)',
+                    'Spiritual Father of TeckoChecker',
+                    '',
+                    'Built with:',
+                    '  - Python 3.11+',
+                    '  - FastAPI',
+                    '  - SQLite',
+                    '  - Lots of caffeine',
+                    '',
+                    'Special thanks to the open source community!'
+                ]);
+                break;
+            case 'snake':
+                this.launchSnakeGame();
+                break;
+            case 'hack':
+                this.runHackingSequence();
+                break;
+            case 'matrix':
+                this.runMatrixEffect();
                 break;
             case 'refresh':
                 location.reload();
@@ -623,11 +601,134 @@ class TeckoApp {
                 break;
             default:
                 if (cmd) {
-                    alert(`Unknown command: ${cmd}\nType 'help' for available commands.`);
+                    this.showTerminalOutput([
+                        `> ERROR: Unknown command '${cmd}'`,
+                        `> Type 'help' for available commands`
+                    ]);
                 }
         }
 
         input.value = '';
+    }
+
+    showTerminalOutput(lines) {
+        const output = lines.join('\n');
+        alert(output);
+    }
+
+    launchSnakeGame() {
+        const game = new SnakeGame();
+        game.start();
+    }
+
+    runHackingSequence() {
+        const modal = document.createElement('div');
+        modal.id = 'hack-modal';
+        modal.className = 'modal active';
+        modal.innerHTML = `
+            <div class="modal-content hack-terminal">
+                <div id="hack-output" class="hack-output"></div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        const output = document.getElementById('hack-output');
+        const commands = [
+            'Initializing hack sequence...',
+            'Connecting to mainframe...',
+            'Bypassing firewall...',
+            'Decrypting database...',
+            'Downloading batch files...',
+            'Access granted!',
+            'Just kidding :)',
+            '',
+            'Press ESC or click to close'
+        ];
+
+        let index = 0;
+        const interval = setInterval(() => {
+            if (index < commands.length) {
+                output.innerHTML += `<div class="hack-line">> ${commands[index]}</div>`;
+                output.scrollTop = output.scrollHeight;
+                index++;
+            } else {
+                clearInterval(interval);
+            }
+        }, 500);
+
+        const close = () => {
+            modal.remove();
+        };
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) close();
+        });
+
+        document.addEventListener('keydown', function escHandler(e) {
+            if (e.key === 'Escape') {
+                close();
+                document.removeEventListener('keydown', escHandler);
+            }
+        });
+    }
+
+    runMatrixEffect() {
+        const modal = document.createElement('div');
+        modal.id = 'matrix-modal';
+        modal.className = 'modal active';
+        modal.innerHTML = `
+            <div class="modal-content matrix-container">
+                <canvas id="matrix-canvas"></canvas>
+                <div class="matrix-text">THE MATRIX HAS YOU...<br>Press ESC to exit</div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        const canvas = document.getElementById('matrix-canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth * 0.9;
+        canvas.height = window.innerHeight * 0.8;
+
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*()';
+        const fontSize = 14;
+        const columns = canvas.width / fontSize;
+        const drops = Array(Math.floor(columns)).fill(1);
+
+        const draw = () => {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = '#00ff41';
+            ctx.font = fontSize + 'px monospace';
+
+            for (let i = 0; i < drops.length; i++) {
+                const text = chars[Math.floor(Math.random() * chars.length)];
+                ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+
+                if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
+                    drops[i] = 0;
+                }
+                drops[i]++;
+            }
+        };
+
+        const matrixInterval = setInterval(draw, 33);
+
+        const close = () => {
+            clearInterval(matrixInterval);
+            modal.remove();
+        };
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) close();
+        });
+
+        document.addEventListener('keydown', function escHandler(e) {
+            if (e.key === 'Escape') {
+                close();
+                document.removeEventListener('keydown', escHandler);
+            }
+        });
     }
 }
 
