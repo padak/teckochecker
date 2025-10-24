@@ -102,8 +102,11 @@ class SecretManager:
         self.validate_secret_type(secret_data.type)
 
         try:
+            # Trim whitespace from secret value before encrypting
+            trimmed_value = secret_data.value.strip() if secret_data.value else ""
+
             # Encrypt the secret value
-            encrypted_value = self.encryption_service.encrypt(secret_data.value)
+            encrypted_value = self.encryption_service.encrypt(trimmed_value)
 
             # Create secret model
             secret = Secret(
@@ -147,8 +150,9 @@ class SecretManager:
         secret = self.db.query(Secret).filter(Secret.id == secret_id).first()
 
         if secret and decrypt:
-            # Decrypt the value in memory (don't modify the DB object)
-            secret.value = self.encryption_service.decrypt(secret.value)
+            # Decrypt and trim the value in memory (don't modify the DB object)
+            decrypted = self.encryption_service.decrypt(secret.value)
+            secret.value = decrypted.strip() if decrypted else ""
 
         return secret
 
@@ -166,8 +170,9 @@ class SecretManager:
         secret = self.db.query(Secret).filter(Secret.name == name).first()
 
         if secret and decrypt:
-            # Decrypt the value in memory (don't modify the DB object)
-            secret.value = self.encryption_service.decrypt(secret.value)
+            # Decrypt and trim the value in memory (don't modify the DB object)
+            decrypted = self.encryption_service.decrypt(secret.value)
+            secret.value = decrypted.strip() if decrypted else ""
 
         return secret
 
@@ -181,7 +186,7 @@ class SecretManager:
             secret_id: ID of the secret
 
         Returns:
-            Decrypted secret value
+            Decrypted secret value (trimmed of whitespace)
 
         Raises:
             SecretNotFoundError: If secret is not found
@@ -190,7 +195,9 @@ class SecretManager:
         if not secret:
             raise SecretNotFoundError(f"Secret with id {secret_id} not found")
 
-        return self.encryption_service.decrypt(secret.value)
+        # Decrypt and trim whitespace (for tokens with accidental whitespace)
+        decrypted_value = self.encryption_service.decrypt(secret.value)
+        return decrypted_value.strip() if decrypted_value else ""
 
     def list_secrets(
         self, secret_type: Optional[str] = None, skip: int = 0, limit: int = 100

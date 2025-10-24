@@ -268,7 +268,7 @@ class PollingService:
             # Get or create Keboola client for this job
             keboola_client = await self._get_keboola_client(job)
 
-            # Prepare metadata
+            # Prepare metadata to pass as Keboola variables
             completed_ids = [b.batch_id for b in job.completed_batches]
             failed_ids = [b.batch_id for b in job.failed_batches]
 
@@ -282,11 +282,11 @@ class PollingService:
 
             logger.info(f"Job {job_id}: Triggering Keboola with metadata: {parameters}")
 
-            # Trigger the Keboola job with parameters
+            # Trigger the Keboola job with parameters (sent as variableValuesData)
             trigger_result = await keboola_client.trigger_job(
                 configuration_id=job.keboola_configuration_id,
                 component_id=job.keboola_component_id,
-                parameters=parameters  # Pass batch metadata
+                parameters=parameters  # Pass batch metadata as Keboola variables
             )
 
             logger.info(

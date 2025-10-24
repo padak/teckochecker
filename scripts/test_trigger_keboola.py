@@ -140,21 +140,21 @@ def trigger_keboola_job(
     batch_count_completed = len(batch_ids_completed)
     batch_count_failed = len(batch_ids_failed)
 
-    # Build payload with jobParams structure
+    # Build payload with variableValuesData (inline variable values)
+    # See: https://developers.keboola.com/integrate/variables/#option-3--run-a-job-with-inline-values
+    # All values must be strings
     payload = {
         "mode": "run",
         "component": component,
         "config": config_id,
-        "configData": {
-            "parameters": {
-                "jobParams": {
-                    "batch_ids_completed": batch_ids_completed,
-                    "batch_ids_failed": batch_ids_failed,
-                    "batch_count_total": batch_count_total,
-                    "batch_count_completed": batch_count_completed,
-                    "batch_count_failed": batch_count_failed,
-                }
-            }
+        "variableValuesData": {
+            "values": [
+                {"name": "batch_ids_completed", "value": json.dumps(batch_ids_completed)},
+                {"name": "batch_ids_failed", "value": json.dumps(batch_ids_failed)},
+                {"name": "batch_count_total", "value": str(batch_count_total)},
+                {"name": "batch_count_completed", "value": str(batch_count_completed)},
+                {"name": "batch_count_failed", "value": str(batch_count_failed)},
+            ]
         },
     }
 

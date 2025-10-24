@@ -2,196 +2,190 @@
 """
 TeckoChecker Demo - Keboola Custom Python Script
 
-This script demonstrates how to receive and process batch completion metadata
-from TeckoChecker polling service.
+Receives batch completion metadata from TeckoChecker via Keboola variables.
 
-When TeckoChecker completes monitoring OpenAI batch jobs, it triggers this
-Keboola configuration with batch completion details.
-
-Parameters received from TeckoChecker:
-- batch_ids_completed: List of successfully completed batch IDs
-- batch_ids_failed: List of failed/cancelled/expired batch IDs
-- batch_count_total: Total number of batches monitored
-- batch_count_completed: Count of successfully completed batches
-- batch_count_failed: Count of failed batches
+TeckoChecker sends variableValuesData which Keboola maps to User Parameters.
+Variables are then accessible directly via CommonInterface.configuration.parameters.
 """
 
 import json
 import logging
-import os
-import sys
-from typing import List, Dict, Any
+from typing import Any, Dict
 from keboola.component import CommonInterface
 
 
-def log_batch_metadata(parameters: Dict[str, Any]) -> None:
+def parse_variable(value: Any, var_type: str = "string") -> Any:
     """
-    Log batch completion metadata received from TeckoChecker.
+    Parse variable value to correct type.
 
     Args:
-        parameters: Dictionary containing batch metadata
+        value: Raw variable value
+        var_type: Expected type: "array", "int", or "string"
+
+    Returns:
+        Parsed value in the correct type
     """
-    # Extract parameters with defaults
-    batch_ids_completed = parameters.get("batch_ids_completed", [])
-    batch_ids_failed = parameters.get("batch_ids_failed", [])
-    batch_count_total = parameters.get("batch_count_total", 0)
-    batch_count_completed = parameters.get("batch_count_completed", 0)
-    batch_count_failed = parameters.get("batch_count_failed", 0)
+    if value is None:
+        return [] if var_type == "array" else (0 if var_type == "int" else "")
 
-    # Use logging.info for visibility (CommonInterface sets up rich logging)
-    logging.info("")
-    logging.info("=" * 80)
-    logging.info("TeckoChecker Batch Completion Summary")
-    logging.info("=" * 80)
-    logging.info(f"Total Batches: {batch_count_total}")
-    logging.info(f"Completed: {batch_count_completed}")
-    logging.info(f"Failed: {batch_count_failed}")
+    if var_type == "array":
+        if isinstance(value, list):
+            return value
+        # If it comes as JSON string, parse it
+        if isinstance(value, str):
+            try:
+                return json.loads(value) if value else []
+            except json.JSONDecodeError:
+                logging.warning(f"Could not parse array variable: {value}")
+                return []
+        return []
 
-    # Log completed batch IDs
+    elif var_type == "int":
+        if isinstance(value, int):
+            return value
+        # If it comes as string, convert it
+        if isinstance(value, str):
+            try:
+                return int(value) if value else 0
+            except (ValueError, TypeError):
+                logging.warning(f"Could not parse int variable: {value}")
+                return 0
+        return 0
+
+    return str(value) if value else ""
+
+
+def log_batch_metadata(params: Dict[str, Any]) -> None:
+    """
+    Log batch completion metadata from TeckoChecker.
+
+    Args:
+        params: Dictionary containing batch metadata (directly in params, not nested)
+    """
+    # Keboola puts variables directly in params (not in user_properties sub-dict)
+    # Parse variables directly from params
+    batch_ids_completed = parse_variable(params.get("batch_ids_completed"), "array")
+    batch_ids_failed = parse_variable(params.get("batch_ids_failed"), "array")
+    batch_count_total = parse_variable(params.get("batch_count_total"), "int")
+    batch_count_completed = parse_variable(params.get("batch_count_completed"), "int")
+    batch_count_failed = parse_variable(params.get("batch_count_failed"), "int")
+
+    logging.info("=" * 80)
+    logging.info("TeckoChecker - Batch Completion")
+    logging.info("=" * 80)
+
+    # Log raw parameters (as received from Keboola)
+    logging.info("\nRaw parameters:")
+    for key, value in params.items():
+        logging.info(f"  {key}: {value!r}")
+
+    # Log parsed data
+    logging.info("\nParsed data:")
+    logging.info(f"  Total batches: {batch_count_total}")
+    logging.info(f"  Completed: {batch_count_completed}")
+    logging.info(f"  Failed: {batch_count_failed}")
+
+    # Log batch IDs
     if batch_ids_completed:
-        logging.info("")
-        logging.info("Completed Batch IDs:")
-        for i, batch_id in enumerate(batch_ids_completed, 1):
-            logging.info(f"  {i}. {batch_id}")
-    else:
-        logging.info("")
-        logging.info("No completed batches")
+        logging.info(f"\n  Completed batch IDs ({len(batch_ids_completed)}):")
+        for batch_id in batch_ids_completed:
+            logging.info(f"    - {batch_id}")
 
-    # Log failed batch IDs
     if batch_ids_failed:
-        logging.warning("")
-        logging.warning("Failed Batch IDs:")
-        for i, batch_id in enumerate(batch_ids_failed, 1):
-            logging.warning(f"  {i}. {batch_id}")
-    else:
-        logging.info("")
-        logging.info("No failed batches")
+        logging.warning(f"\n  Failed batch IDs ({len(batch_ids_failed)}):")
+        for batch_id in batch_ids_failed:
+            logging.warning(f"    - {batch_id}")
 
-    logging.info("=" * 80)
-
-    # Determine overall status
+    # Overall status
+    logging.info("")
     if batch_count_failed == 0:
         logging.info("✓ All batches completed successfully!")
     elif batch_count_completed > 0:
-        logging.warning(f"⚠ Partial success: {batch_count_completed}/{batch_count_total} batches completed")
+        logging.warning(f"⚠ Partial success: {batch_count_completed}/{batch_count_total} completed")
     else:
         logging.error(f"✗ All batches failed ({batch_count_failed}/{batch_count_total})")
 
-
-def process_batch_results(batch_ids_completed: List[str], batch_ids_failed: List[str]) -> None:
-    """
-    Process batch results (placeholder for custom logic).
-
-    This is where you would add your custom processing logic, such as:
-    - Downloading results from completed batches
-    - Sending notifications
-    - Updating downstream systems
-    - Triggering additional workflows
-
-    Args:
-        batch_ids_completed: List of successfully completed batch IDs
-        batch_ids_failed: List of failed batch IDs
-    """
-    logging.info("")
-    logging.info("Processing batch results...")
-
-    # Example: Process completed batches
-    if batch_ids_completed:
-        logging.info(f"Processing {len(batch_ids_completed)} completed batches...")
-        for batch_id in batch_ids_completed:
-            logging.info(f"  - Would download/process results from: {batch_id}")
-            # Add your custom logic here
-            # Example: download_batch_results(batch_id)
-            # Example: process_batch_output(batch_id)
-
-    # Example: Handle failed batches
-    if batch_ids_failed:
-        logging.warning(f"Handling {len(batch_ids_failed)} failed batches...")
-        for batch_id in batch_ids_failed:
-            logging.warning(f"  - Would handle failure for: {batch_id}")
-            # Add your error handling logic here
-            # Example: send_failure_notification(batch_id)
-            # Example: retry_batch(batch_id)
-
-    logging.info("Processing complete!")
+    logging.info("=" * 80)
 
 
 def main():
-    """
-    Main entry point for Keboola Custom Python component.
-    """
-    # Initialize Keboola Common Interface FIRST (required for logging to work properly)
-    ci = CommonInterface()
+    """Main entry point."""
+    import os
 
-    logging.warning("=" * 80)
-    logging.warning("🚀 TeckoChecker Demo Script Started")
-    logging.warning("=" * 80)
-    logging.warning("")
+    logging.info("=" * 80)
+    logging.info("🚀 TeckoChecker - Batch Completion Handler")
+    logging.info("=" * 80)
 
-    # 1. Try to read config.json directly from disk
+    # STEP 1: Read /data/config.json directly from disk
+    logging.info("\n" + "=" * 80)
+    logging.info("STEP 1: Reading /data/config.json from disk")
+    logging.info("=" * 80)
+
     config_path = "/data/config.json"
-    logging.warning(f"📁 Reading config from: {config_path}")
+    config_data = None
 
     if os.path.exists(config_path):
-        logging.warning("✓ Config file exists")
+        logging.info(f"✓ File exists at: {config_path}")
         try:
             with open(config_path, 'r') as f:
                 config_data = json.load(f)
 
-            logging.warning("")
-            logging.warning("📄 RAW CONFIG.JSON CONTENT:")
-            logging.warning(json.dumps(config_data, indent=2))
-            logging.warning("")
+            logging.info("\n📄 RAW /data/config.json content:")
+            logging.info("-" * 80)
+            logging.info(json.dumps(config_data, indent=2))
+            logging.info("-" * 80)
 
-            # Extract parameters from config
-            config_parameters = config_data.get("parameters", {})
-            logging.warning(f"✓ Found {len(config_parameters)} parameters in config.json")
+            # Show parameters specifically
+            if "parameters" in config_data:
+                logging.info("\n✓ Found 'parameters' in config.json:")
+                logging.info(json.dumps(config_data["parameters"], indent=2))
+
+                if "user_properties" in config_data.get("parameters", {}):
+                    logging.info("\n✓ Found 'user_properties' in parameters:")
+                    logging.info(json.dumps(config_data["parameters"]["user_properties"], indent=2))
+                else:
+                    logging.warning("\n⚠️ No 'user_properties' in parameters")
+            else:
+                logging.warning("\n⚠️ No 'parameters' key in config.json")
 
         except Exception as e:
-            logging.error(f"❌ Error reading config.json: {e}")
+            logging.error(f"❌ Failed to read config.json: {e}")
     else:
-        logging.error(f"❌ Config file not found at: {config_path}")
+        logging.error(f"❌ Config file NOT found at: {config_path}")
 
-    # 2. Get parameters from CommonInterface
-    logging.warning("")
-    logging.warning("📦 PARAMETERS FROM COMMONINTERFACE:")
-    parameters = ci.configuration.parameters
-
-    if not parameters:
-        logging.error("❌ ERROR: No parameters from CommonInterface!")
-    else:
-        logging.warning(f"✓ Received {len(parameters)} parameters")
-        logging.warning("")
-
-        for key, value in parameters.items():
-            if isinstance(value, list):
-                logging.warning(f"  • {key}: [{len(value)} items]")
-                for i, item in enumerate(value, 1):
-                    logging.warning(f"      {i}. {item}")
-            else:
-                logging.warning(f"  • {key}: {value}")
-
-    logging.warning("")
-    logging.warning("=" * 80)
-
-    # Log batch metadata
-    log_batch_metadata(parameters)
-
-    # Process batch results (placeholder for custom logic)
-    batch_ids_completed = parameters.get("batch_ids_completed", [])
-    batch_ids_failed = parameters.get("batch_ids_failed", [])
-    process_batch_results(batch_ids_completed, batch_ids_failed)
-
-    logging.info("")
+    # STEP 2: Initialize CommonInterface and read parameters
+    logging.info("\n" + "=" * 80)
+    logging.info("STEP 2: Reading via CommonInterface")
     logging.info("=" * 80)
-    logging.info("✓ TeckoChecker Demo Script Completed Successfully")
+
+    ci = CommonInterface()
+    params = ci.configuration.parameters
+
+    logging.info("\n📦 CommonInterface.configuration.parameters:")
+    logging.info(json.dumps(params, indent=2))
+
+    if not params:
+        logging.error("\n❌ No parameters from CommonInterface!")
+        return
+
+    # Keboola variables are mapped directly to params (not nested in user_properties)
+    logging.info("\n✓ Parameters received from Keboola variables")
+
+    # STEP 3: Parse and log batch metadata
+    logging.info("\n" + "=" * 80)
+    logging.info("STEP 3: Parsing batch metadata")
     logging.info("=" * 80)
+    log_batch_metadata(params)
+
+    # Add your custom processing logic here
+    # Example: Download batch results, send notifications, etc.
+
+    logging.info("\n✓ Script completed successfully")
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        logging.error(f"❌ ERROR in TeckoChecker demo script: {type(e).__name__}: {str(e)}")
-        logging.exception(e, extra={"context": "main_execution"})
+        logging.error(f"❌ ERROR: {type(e).__name__}: {str(e)}")
         raise

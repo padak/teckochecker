@@ -174,3 +174,14 @@ The `demo/` directory contains practical examples:
    - See `demo/README_KEBOOLA.md`
 
 Both demos are documented in `demo/README.md` with quick start instructions.
+
+## Available Skills
+
+Skills are specialized tools invoked via the Skill tool when needed:
+
+- **codex**: Interact with OpenAI Codex CLI for second opinions, multi-model analysis, and structured output generation. Useful for code review from different AI perspective, architectural validation, or when you need structured JSON responses with schemas.
+
+Usage: "Use the codex skill to [task]" or "Invoke codex skill"
+
+### Key Principles
+1. **Agent-First Workflow**: When the work plan allows, prefer using sub-agents (Task tool) for complex, multi-step tasks. This enables parallel execution, specialized expertise, and better resource management. Use sub-agents for exploration, testing, documentation, and any task that can be delegated.
