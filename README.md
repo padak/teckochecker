@@ -89,6 +89,9 @@ open http://127.0.0.1:8000/web
     <td><img src="docs/img/job_detail.png" alt="Job Detail" width="400"/><br/><em>Job Monitoring</em></td>
     <td><img src="docs/img/api.png" alt="API Docs" width="400"/><br/><em>API Documentation</em></td>
   </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="docs/img/snake.png" alt="Snake Game Easter Egg" width="400"/><br/><em>Hidden Snake Game (try 'snake' command!)</em></td>
+  </tr>
 </table>
 
 See [docs/WEB_UI.md](docs/WEB_UI.md) for detailed Web UI documentation.
