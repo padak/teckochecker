@@ -126,6 +126,30 @@ Exponential backoff for API errors, no retry for 4xx (except 429). Database erro
   - `completed_count`: Count of completed batches
   - `failed_count`: Count of failed/cancelled/expired batches
 
+### Keboola Variables Integration
+TeckoChecker uses Keboola's `variableValuesData` (inline variables) to pass batch metadata:
+
+**How it works:**
+1. **TeckoChecker** sends batch metadata as `variableValuesData` in the job trigger request
+2. **KeboolaClient** automatically converts parameters to Keboola variable format:
+   - Lists → JSON strings: `json.dumps(["batch_001"])`
+   - Numbers → strings: `str(42)`
+3. **Keboola** maps variables to User Parameters in the Custom Python component
+4. **Python script** receives variables directly via `CommonInterface.configuration.parameters`
+
+**Key points:**
+- Variables are **NOT nested** in `user_properties` - they're in root `parameters`
+- Lists come as JSON strings and must be parsed: `json.loads(params["batch_ids_completed"])`
+- Numbers come as strings and must be converted: `int(params["batch_count_total"])`
+- See `demo/keboola_config.json` for User Parameters configuration example
+- See `demo/keboola_batch_handler.py` for receiving script implementation
+- Use `scripts/test_trigger_keboola.py` to test Keboola triggering independently
+
+**Secrets handling:**
+- Secrets are automatically trimmed (`.strip()`) when stored and retrieved
+- Prevents issues with accidental whitespace in API tokens
+- Applied in `SecretManager.create_secret()` and `get_decrypted_value()`
+
 ### Project Structure
 ```
 teckochecker/
