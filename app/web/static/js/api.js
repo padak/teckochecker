@@ -13,6 +13,7 @@ class TeckoAPI {
     async request(method, path, body = null) {
         const options = {
             method,
+            credentials: 'include', // Send Basic Auth credentials with every request
             headers: {
                 'Content-Type': 'application/json',
             },
