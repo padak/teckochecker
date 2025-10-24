@@ -3,7 +3,7 @@
 **Document Version:** 1.0
 **Last Updated:** 2025-01-24
 **Status:** Draft for Review
-**Author:** Winston (BMad Architect) & Mary (BMad Analyst)
+**Author:** Padak
 
 ---
 
@@ -1973,5 +1973,5 @@ This PRD defines a comprehensive custom check jobs feature that transforms Tecko
 ---
 
 **Document Status:** Draft for Review
-**Reviewers:** Tomáš (Product), Engineering Team
+**Reviewers:** 
 **Approval Required:** Yes (before implementation)
