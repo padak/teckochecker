@@ -199,12 +199,19 @@ TeckoChecker uses Keboola's `variableValuesData` (inline variables) to pass batc
 ### Project Structure
 ```
 teckochecker/
-├── app/            # Core: api/, cli/, services/, integrations/, models.py, web/
-├── demo/           # OpenAI Batch API and Keboola integration demos
-├── docs/           # PRD, architecture, user guides, migration guides
-├── tests/          # Unit and integration tests
-├── Makefile        # Development automation
-└── teckochecker.py # CLI entry point
+├── app/                 # Core: api/, cli/, services/, integrations/, models.py, web/
+├── demo/                # OpenAI Batch API and Keboola integration demos
+├── docs/                # PRD, architecture, user guides, migration guides
+├── tests/               # Unit and integration tests
+├── Caddyfile.example    # Template for Caddy reverse proxy config
+├── docker-compose.yml   # Docker services: TeckoChecker + Caddy
+├── Dockerfile           # Production container image
+├── Makefile             # Development automation
+└── teckochecker.py      # CLI entry point
+
+# Not in git (see .gitignore):
+├── Caddyfile            # Local Caddy config with domain & password hash
+└── .env                 # Environment variables (SECRET_KEY, etc.)
 ```
 
 ### Version
@@ -227,6 +234,12 @@ Current version: 0.9.5
 ### Deployment
 - Single-tenant, admin-only access (no multi-user auth in MVP)
 - SQLite database (PostgreSQL-ready for future scaling)
+- **Caddyfile**: Not tracked in git (in `.gitignore`). Use `Caddyfile.example` as template.
+  - Copy and customize: `cp Caddyfile.example Caddyfile`
+  - Generate password hash: `docker run --rm caddy:2-alpine caddy hash-password --plaintext "your-password"`
+  - Update domain and hash in your local `Caddyfile`
+- **Docker Compose**: Port 80 required for Let's Encrypt ACME challenge
+  - Caddy logs persisted in `caddy-logs` volume
 
 ## Demo Scripts
 
