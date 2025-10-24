@@ -79,3 +79,6 @@ alembic.ini
 
 # Docker
 .dockerignore
+
+# Caddy (contains password hashes and domain-specific config)
+Caddyfile

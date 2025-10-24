@@ -1,0 +1,49 @@
+# Caddyfile.example - HTTPS with Let's Encrypt and Basic Authentication
+#
+# SETUP INSTRUCTIONS:
+# 1. Copy this file: cp Caddyfile.example Caddyfile
+# 2. Replace YOUR_DOMAIN.COM with your actual domain
+# 3. Generate password hash:
+#    docker run --rm caddy:2-alpine caddy hash-password --plaintext "your-secure-password"
+# 4. Replace the hash in basicauth section below
+# 5. Ensure DNS points to your server IP
+# 6. Start: docker-compose up -d
+
+YOUR_DOMAIN.COM {
+    # Automatic Let's Encrypt certificate
+    # Caddy handles ACME challenge internally (no proxying needed)
+
+    # Health check endpoint (no auth required for monitoring)
+    @health path /api/health
+    handle @health {
+        reverse_proxy teckochecker:8000
+    }
+
+    # Basic Authentication for all other endpoints
+    # Username: admin
+    # Password: CHANGE_ME (generate hash with command above)
+    basicauth {
+        admin $2a$14$REPLACE_THIS_WITH_YOUR_PASSWORD_HASH
+    }
+
+    # Reverse proxy to backend
+    reverse_proxy teckochecker:8000
+
+    # Enable gzip compression
+    encode gzip
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    # Logging
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
+}
