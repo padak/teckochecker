@@ -33,6 +33,9 @@ services:
       # Database persistence
       - teckochecker-data:/data
 
+      # Log file persistence
+      - teckochecker-logs:/app/logs
+
       # Optional: Mount .env file for additional configuration
       # - ./.env:/app/.env:ro
 
@@ -110,6 +113,8 @@ services:
 
 volumes:
   teckochecker-data:
+    driver: local
+  teckochecker-logs:
     driver: local
   caddy-data:
     driver: local

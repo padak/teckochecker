@@ -13,8 +13,23 @@ tt.keboola.ai {
     # Caddy will handle HTTP-01 challenge on port 80
     # After initial setup, you can close port 80 until renewal
 
-    # Reverse proxy to TeckoChecker API
-    reverse_proxy teckochecker:8000
+    # Basic Authentication
+    # Generate password hash: docker run --rm caddy:2-alpine caddy hash-password --plaintext "your-password"
+    basicauth {
+        # Username: admin
+        # Password: changeme (CHANGE THIS!)
+        admin $2a$14$Zkx19XLiW6VYouLHR5NmfOFU0z2GTNmpkT/5BykvkMTR8zA4Y.jgO
+    }
+
+    # Health check endpoint (no auth required)
+    handle /api/health {
+        reverse_proxy teckochecker:8000
+    }
+
+    # All other endpoints require authentication
+    handle {
+        reverse_proxy teckochecker:8000
+    }
 
     # Enable gzip compression
     encode gzip
