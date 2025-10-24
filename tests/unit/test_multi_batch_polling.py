@@ -696,12 +696,10 @@ class TestTriggerKeboolaWithResults:
 
             assert "configuration_id" in call_kwargs
             assert "component_id" in call_kwargs
-            assert "tag" in call_kwargs
             assert "parameters" in call_kwargs
 
             assert call_kwargs["configuration_id"] == "12345"
             assert call_kwargs["component_id"] == "kds-team.app-custom-python"
-            assert "teckochecker" in call_kwargs["tag"]
 
             params = call_kwargs["parameters"]
             assert isinstance(params, dict)

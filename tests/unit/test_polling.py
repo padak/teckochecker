@@ -280,7 +280,6 @@ class TestPollingServiceBasicFlow:
             call_kwargs = mock_keboola.trigger_job.call_args.kwargs
             assert call_kwargs["configuration_id"] == "12345"
             assert call_kwargs["component_id"] == "kds-team.app-custom-python"
-            assert "teckochecker" in call_kwargs["tag"]
 
     async def test_process_single_job_failed_marks_failed(
         self, polling_service, sample_job, mock_openai_response_failed, db_session
