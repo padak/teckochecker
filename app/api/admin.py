@@ -1,11 +1,12 @@
 """Admin API endpoints for secrets management."""
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
+from app.rate_limiter import limiter, get_limit_for_endpoint
 from app.models import Secret, PollingJob
 from app.schemas import (
     SecretCreate,
@@ -27,7 +28,8 @@ router = APIRouter()
     summary="Create a new secret",
     description="Store a new encrypted secret (OpenAI or Keboola API key)",
 )
-async def create_secret(secret_data: SecretCreate, db: Session = Depends(get_db)):
+@limiter.limit(get_limit_for_endpoint("POST"))
+async def create_secret(request: Request, secret_data: SecretCreate, db: Session = Depends(get_db)):
     """
     Create a new secret.
 
@@ -83,7 +85,8 @@ async def create_secret(secret_data: SecretCreate, db: Session = Depends(get_db)
     summary="List all secrets",
     description="Get a list of all secrets (without their values)",
 )
-async def list_secrets(db: Session = Depends(get_db)):
+@limiter.limit(get_limit_for_endpoint("GET"))
+async def list_secrets(request: Request, db: Session = Depends(get_db)):
     """
     List all secrets.
 
@@ -106,7 +109,8 @@ async def list_secrets(db: Session = Depends(get_db)):
     summary="Get secret details",
     description="Get details of a specific secret (without the value)",
 )
-async def get_secret(secret_id: int, db: Session = Depends(get_db)):
+@limiter.limit(get_limit_for_endpoint("GET"))
+async def get_secret(request: Request, secret_id: int, db: Session = Depends(get_db)):
     """
     Get secret details by ID.
 
@@ -139,7 +143,8 @@ async def get_secret(secret_id: int, db: Session = Depends(get_db)):
     summary="Delete a secret",
     description="Delete a secret if it's not referenced by any active jobs",
 )
-async def delete_secret(secret_id: int, db: Session = Depends(get_db)):
+@limiter.limit(get_limit_for_endpoint("DELETE"))
+async def delete_secret(request: Request, secret_id: int, db: Session = Depends(get_db)):
     """
     Delete a secret.
 

@@ -13,6 +13,7 @@ pydantic-settings==2.11.0
 
 # Security and encryption
 cryptography==46.0.3
+slowapi==0.1.9
 
 # HTTP clients
 httpx==0.28.1           # CLI commands

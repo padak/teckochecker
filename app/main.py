@@ -9,8 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError
+from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
+from app.rate_limiter import limiter, rate_limit_exceeded_handler, get_limit_for_endpoint
 from app.database import init_db, get_db
 from app.services.encryption import init_encryption_service
 from app.services.polling import PollingService
@@ -120,8 +122,38 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
+# Add rate limiter state to app
+app.state.limiter = limiter
+
+# Add SlowAPI middleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.middleware import SlowAPIMiddleware
+
+app.add_middleware(SlowAPIMiddleware)
 
 # Configure CORS middleware
+# CORS (Cross-Origin Resource Sharing) controls which websites can make requests to our API from browsers.
+#
+# WHEN CORS IS NEEDED:
+# CORS is only needed when the Web UI is served from a DIFFERENT domain than the API.
+# For example: UI at https://ui.example.com calling API at https://api.example.com
+#
+# WHEN CORS IS NOT NEEDED (CURRENT SETUP):
+# Our Web UI is served from the SAME origin as the API:
+# - Web UI: http://localhost:8000/web (or https://tt.keboola.ai/web)
+# - API: http://localhost:8000/api (or https://tt.keboola.ai/api)
+# Same-origin requests bypass CORS entirely - browsers allow them automatically.
+#
+# SECURITY CONSIDERATIONS:
+# 1. Empty cors_origins list = CORS disabled = only same-origin requests allowed
+# 2. If external tools need API access, add specific origins like ["https://tool.example.com"]
+# 3. NEVER use allow_origins=["*"] with allow_credentials=True - browsers reject this
+# 4. NEVER use allow_origins=["*"] in production - allows any malicious site to call your API
+#
+# WHAT CORS PROTECTS AGAINST:
+# Without CORS restrictions, a malicious website (evil.com) could make authenticated API
+# requests on behalf of logged-in users, potentially stealing data or performing actions.
+# CORS ensures only trusted origins can make cross-origin requests.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -132,6 +164,12 @@ app.add_middleware(
 
 
 # Exception handlers
+@app.exception_handler(RateLimitExceeded)
+async def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    """Handle rate limit exceeded errors."""
+    return rate_limit_exceeded_handler(request, exc)
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle validation errors with custom format."""
@@ -187,7 +225,8 @@ app.include_router(web_router, prefix="/web", tags=["Web UI"])
 
 # Root endpoint
 @app.get("/", tags=["Root"])
-async def root():
+@limiter.limit(get_limit_for_endpoint("GET"))
+async def root(request: Request):
     """Root endpoint with API information."""
     return {
         "name": settings.api_title,

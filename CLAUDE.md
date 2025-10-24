@@ -71,6 +71,52 @@ make help
 
 The application requires a `.env` file with `SECRET_KEY` (Fernet encryption for AES-256), `DATABASE_URL`, and polling interval settings. Use `python teckochecker.py init --generate-env` for automatic setup.
 
+### CORS Configuration
+CORS is **disabled by default** (`CORS_ORIGINS=[]`) since the Web UI and API are served from the same origin. Same-origin requests bypass CORS automatically. If you need to allow external tools or different origins, add specific origins to `.env`:
+```bash
+CORS_ORIGINS=["https://external-tool.example.com"]
+```
+**SECURITY**: Never use `CORS_ORIGINS=["*"]` with `CORS_ALLOW_CREDENTIALS=true` - browsers reject this combination per CORS spec.
+
+### Rate Limiting
+Application-level rate limiting is implemented using SlowAPI to prevent API abuse:
+
+**Default Limits** (configurable via `.env`):
+- Read endpoints (GET): `200/minute` - More permissive for monitoring and queries
+- Write endpoints (POST/PUT/DELETE): `50/minute` - More restrictive to prevent abuse
+- Default: `100/minute` - Applied to endpoints without specific limits
+
+**Key Features**:
+- IP-based rate limiting (supports X-Forwarded-For for proxies)
+- In-memory storage (no Redis needed for single-instance deployment)
+- Fixed-window strategy for predictable behavior
+- HTTP 429 response with `Retry-After` header
+- `/api/health` endpoint is **EXEMPT** from rate limiting (for monitoring tools)
+
+**Configuration**:
+```bash
+# In .env
+RATE_LIMIT_ENABLED=true          # Enable/disable globally
+RATE_LIMIT_READ=200/minute       # GET requests
+RATE_LIMIT_WRITE=50/minute       # POST/PUT/DELETE requests
+RATE_LIMIT_DEFAULT=100/minute    # Default for unspecified endpoints
+```
+
+**Error Response** (HTTP 429):
+```json
+{
+  "error": "rate_limit_exceeded",
+  "message": "Too many requests. Please try again later.",
+  "code": 4029
+}
+```
+
+**Implementation Details**:
+- `app/rate_limiter.py`: Core rate limiting logic with SlowAPI
+- All API endpoints decorated with `@limiter.limit()` except `/api/health`
+- Limits applied per HTTP method (GET vs POST/PUT/DELETE)
+- Rate limits can be disabled by setting `RATE_LIMIT_ENABLED=false`
+
 ## Interfaces
 
 **Dual Interface Design**: Both API and CLI call the same service layer methods.

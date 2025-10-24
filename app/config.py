@@ -40,19 +40,43 @@ class Settings(BaseSettings):
     )
 
     # CORS configuration
-    cors_origins: list[str] = Field(default=["*"], description="Allowed CORS origins")
+    # NOTE: CORS is disabled by default since Web UI is served from the same origin.
+    # If you need to allow cross-origin requests (e.g., external tools), set specific origins.
+    # SECURITY: Never use ["*"] with allow_credentials=True - browsers will reject this.
+    cors_origins: list[str] = Field(
+        default=[],
+        description="Allowed CORS origins (empty list disables CORS)",
+    )
     cors_allow_credentials: bool = Field(
-        default=True, description="Allow credentials in CORS requests"
+        default=False, description="Allow credentials in CORS requests"
     )
     cors_allow_methods: list[str] = Field(
-        default=["*"], description="Allowed HTTP methods for CORS"
+        default=["GET", "POST", "PUT", "DELETE"],
+        description="Allowed HTTP methods for CORS",
     )
-    cors_allow_headers: list[str] = Field(default=["*"], description="Allowed headers for CORS")
+    cors_allow_headers: list[str] = Field(
+        default=["Content-Type", "Authorization"],
+        description="Allowed headers for CORS",
+    )
 
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
     log_file: Optional[str] = Field(
         default=None, description="Log file path (if None, logs to console only)"
+    )
+
+    # Rate Limiting
+    rate_limit_enabled: bool = Field(
+        default=True, description="Enable rate limiting for API endpoints"
+    )
+    rate_limit_default: str = Field(
+        default="100/minute", description="Default rate limit for API endpoints"
+    )
+    rate_limit_read: str = Field(
+        default="200/minute", description="Rate limit for read endpoints (GET)"
+    )
+    rate_limit_write: str = Field(
+        default="50/minute", description="Rate limit for write endpoints (POST/PUT/DELETE)"
     )
 
     # Application

@@ -2,11 +2,12 @@
 
 import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 
 from app.database import get_db
+from app.rate_limiter import limiter, get_limit_for_endpoint
 from app.models import PollingJob, Secret, PollingLog
 from app.schemas import HealthResponse, StatsResponse
 
@@ -57,7 +58,8 @@ async def health_check(db: Session = Depends(get_db)):
     summary="System statistics",
     description="Get system statistics including job counts and database metrics",
 )
-async def get_stats(db: Session = Depends(get_db)):
+@limiter.limit(get_limit_for_endpoint("GET"))
+async def get_stats(request: Request, db: Session = Depends(get_db)):
     """
     Get system statistics.
 

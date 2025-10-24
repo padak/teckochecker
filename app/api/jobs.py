@@ -3,10 +3,11 @@
 import logging
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.rate_limiter import limiter, get_limit_for_endpoint
 from app.models import PollingJob, Secret, PollingLog, JobBatch
 from app.schemas import (
     PollingJobCreate,
@@ -29,7 +30,8 @@ router = APIRouter()
     summary="Create a new polling job",
     description="Create a new job to poll OpenAI batch status and trigger Keboola job",
 )
-async def create_job(job_data: PollingJobCreate, db: Session = Depends(get_db)):
+@limiter.limit(get_limit_for_endpoint("POST"))
+async def create_job(request: Request, job_data: PollingJobCreate, db: Session = Depends(get_db)):
     """
     Create a new polling job with multiple batch IDs.
 
@@ -130,7 +132,9 @@ async def create_job(job_data: PollingJobCreate, db: Session = Depends(get_db)):
     summary="List all polling jobs",
     description="Get a list of all polling jobs with optional status filtering",
 )
+@limiter.limit(get_limit_for_endpoint("GET"))
 async def list_jobs(
+    request: Request,
     status_filter: Optional[str] = Query(
         None, alias="status", description="Filter jobs by status: active, paused, completed, failed"
     ),
@@ -167,7 +171,9 @@ async def list_jobs(
     summary="Get job details",
     description="Get detailed information about a specific job including batches and logs",
 )
+@limiter.limit(get_limit_for_endpoint("GET"))
 async def get_job(
+    request: Request,
     job_id: int,
     include_logs: bool = Query(True, description="Include job logs in response"),
     log_limit: int = Query(50, ge=1, le=500, description="Maximum number of logs to return"),
@@ -257,7 +263,8 @@ async def get_job(
     summary="Update a job",
     description="Update job configuration (name, intervals, Keboola settings)",
 )
-async def update_job(job_id: int, job_update: PollingJobUpdate, db: Session = Depends(get_db)):
+@limiter.limit(get_limit_for_endpoint("PUT"))
+async def update_job(request: Request, job_id: int, job_update: PollingJobUpdate, db: Session = Depends(get_db)):
     """
     Update a polling job.
 
@@ -315,7 +322,8 @@ async def update_job(job_id: int, job_update: PollingJobUpdate, db: Session = De
     summary="Delete a job",
     description="Delete a polling job and its logs",
 )
-async def delete_job(job_id: int, db: Session = Depends(get_db)):
+@limiter.limit(get_limit_for_endpoint("DELETE"))
+async def delete_job(request: Request, job_id: int, db: Session = Depends(get_db)):
     """
     Delete a polling job.
 
@@ -354,7 +362,8 @@ async def delete_job(job_id: int, db: Session = Depends(get_db)):
     summary="Pause a job",
     description="Pause an active polling job",
 )
-async def pause_job(job_id: int, db: Session = Depends(get_db)):
+@limiter.limit(get_limit_for_endpoint("POST"))
+async def pause_job(request: Request, job_id: int, db: Session = Depends(get_db)):
     """
     Pause a polling job.
 
@@ -410,7 +419,8 @@ async def pause_job(job_id: int, db: Session = Depends(get_db)):
     summary="Resume a job",
     description="Resume a paused polling job",
 )
-async def resume_job(job_id: int, db: Session = Depends(get_db)):
+@limiter.limit(get_limit_for_endpoint("POST"))
+async def resume_job(request: Request, job_id: int, db: Session = Depends(get_db)):
     """
     Resume a paused polling job.
 
