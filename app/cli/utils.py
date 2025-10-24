@@ -160,23 +160,40 @@ def print_jobs_table(jobs: List[Dict[str, Any]]) -> None:
     columns = [
         {"name": "ID", "style": "cyan"},
         {"name": "Name", "style": "green"},
-        {"name": "Batch ID", "style": "yellow", "no_wrap": True},
+        {"name": "Batches", "style": "yellow"},
         {"name": "Status", "style": ""},
         {"name": "Poll Interval", "style": "dim"},
         {"name": "Last Check", "style": "dim"},
     ]
 
-    rows = [
-        [
+    rows = []
+    for job in jobs:
+        # Format batch completion status
+        batch_count = job.get("batch_count", 0)
+        completed_count = job.get("completed_count", 0)
+
+        if batch_count == 0:
+            # Legacy job or no batches
+            batch_display = truncate_string(job.get("batch_id", "N/A"), 15)
+        elif batch_count == 1:
+            # Single batch - show truncated batch ID
+            batches = job.get("batches", [])
+            if batches:
+                batch_display = truncate_string(batches[0].get("batch_id", "N/A"), 15)
+            else:
+                batch_display = "1 batch"
+        else:
+            # Multiple batches - show completion ratio
+            batch_display = f"{completed_count}/{batch_count}"
+
+        rows.append([
             job["id"],
             job["name"],
-            truncate_string(job.get("batch_id", ""), 20),
+            batch_display,
             format_status(job["status"]),
             f"{job.get('poll_interval_seconds', 0)}s",
             format_datetime(job.get("last_check_at")),
-        ]
-        for job in jobs
-    ]
+        ])
 
     print_table("Polling Jobs", columns, rows)
 
@@ -187,13 +204,33 @@ def print_job_details(job: Dict[str, Any]) -> None:
     Args:
         job: Job dictionary with detailed information
     """
+    # Format batch information
+    batches = job.get("batches", [])
+    batch_count = job.get("batch_count", len(batches))
+    completed_count = job.get("completed_count", 0)
+    failed_count = job.get("failed_count", 0)
+
+    if batches:
+        batch_summary = f"{batch_count} total ({completed_count} completed, {failed_count} failed)"
+        batch_details = "\n[bold cyan]Batch Details[/bold cyan]"
+        for i, batch in enumerate(batches, 1):
+            batch_status = batch.get("status", "unknown")
+            batch_id = batch.get("batch_id", "N/A")
+            batch_details += f"\n  {i}. {batch_id}: {format_batch_status(batch_status)}"
+    else:
+        # Legacy single-batch job
+        batch_id = job.get("batch_id", "N/A")
+        batch_summary = f"Single batch: {batch_id}"
+        batch_details = ""
+
     details = f"""
 [bold cyan]Job Details[/bold cyan]
 
 [bold]ID:[/bold] {job['id']}
 [bold]Name:[/bold] {job['name']}
-[bold]Batch ID:[/bold] {job.get('batch_id', 'N/A')}
 [bold]Status:[/bold] {format_status(job['status'])}
+[bold]Batches:[/bold] {batch_summary}
+{batch_details}
 
 [bold cyan]Configuration[/bold cyan]
 [bold]OpenAI Secret:[/bold] {job.get('openai_secret_name') or 'N/A'} (ID: {job.get('openai_secret_id', 'N/A')})
@@ -251,6 +288,30 @@ def format_status(status: str) -> str:
         "paused": "yellow",
         "completed": "blue",
         "failed": "red",
+    }
+
+    color = status_colors.get(status.lower(), "white")
+    return f"[{color}]{status}[/{color}]"
+
+
+def format_batch_status(status: str) -> str:
+    """Format batch status with appropriate color.
+
+    Args:
+        status: The batch status string
+
+    Returns:
+        Formatted status string with color
+    """
+    status_colors = {
+        "validating": "yellow",
+        "in_progress": "cyan",
+        "finalizing": "blue",
+        "completed": "green",
+        "failed": "red",
+        "expired": "dim red",
+        "cancelling": "yellow",
+        "cancelled": "dim yellow",
     }
 
     color = status_colors.get(status.lower(), "white")

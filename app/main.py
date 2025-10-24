@@ -20,9 +20,18 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
 
-# Configure logging
+# Load settings early for logging configuration
+settings = get_settings()
+
+# Configure logging with both console and file handlers
+handlers = [logging.StreamHandler()]
+if settings.log_file:
+    handlers.append(logging.FileHandler(settings.log_file))
+
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=getattr(logging, settings.log_level.upper()),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=handlers,
 )
 logger = logging.getLogger(__name__)
 
@@ -101,7 +110,6 @@ async def lifespan(app: FastAPI):
 
 
 # Create FastAPI application
-settings = get_settings()
 app = FastAPI(
     title=settings.api_title,
     version=settings.api_version,

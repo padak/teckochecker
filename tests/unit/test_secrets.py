@@ -347,13 +347,14 @@ class TestSecretManager:
 
     def test_delete_secret_in_use(self, secret_manager, sample_secret_data, db_session):
         """Test that deleting secret in use fails."""
+        from app.models import JobBatch
+
         # Create secret
         created = secret_manager.create_secret(sample_secret_data)
 
         # Create a job that references this secret
         job = PollingJob(
             name="test-job",
-            batch_id="batch_123",
             openai_secret_id=created.id,
             keboola_secret_id=created.id,
             keboola_stack_url="https://connection.keboola.com",
@@ -362,6 +363,10 @@ class TestSecretManager:
             status="active",
         )
         db_session.add(job)
+        db_session.flush()
+
+        batch = JobBatch(job_id=job.id, batch_id="batch_123", status="in_progress")
+        db_session.add(batch)
         db_session.commit()
 
         # Try to delete secret
@@ -370,13 +375,14 @@ class TestSecretManager:
 
     def test_delete_secret_in_use_force(self, secret_manager, sample_secret_data, db_session):
         """Test force deleting secret that is in use."""
+        from app.models import JobBatch
+
         # Create secret
         created = secret_manager.create_secret(sample_secret_data)
 
         # Create a job that references this secret
         job = PollingJob(
             name="test-job",
-            batch_id="batch_123",
             openai_secret_id=created.id,
             keboola_secret_id=created.id,
             keboola_stack_url="https://connection.keboola.com",
@@ -385,6 +391,10 @@ class TestSecretManager:
             status="active",
         )
         db_session.add(job)
+        db_session.flush()
+
+        batch = JobBatch(job_id=job.id, batch_id="batch_123", status="in_progress")
+        db_session.add(batch)
         db_session.commit()
 
         # Force delete should work

@@ -6,6 +6,7 @@ with proper error handling, retries, and exponential backoff.
 """
 
 import asyncio
+import json
 import logging
 from typing import Optional, Dict, Any
 import aiohttp
@@ -47,16 +48,20 @@ class KeboolaClient:
         configuration_id: str,
         component_id: str,
         tag: Optional[str] = None,
+        parameters: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Trigger a Keboola Connection job with automatic retries.
 
         Implements exponential backoff for retries on transient failures.
+        Parameters are passed as Keboola variables (variableValuesData).
 
         Args:
             configuration_id: The ID of the configuration to run
             component_id: Component ID (e.g., 'kds-team.app-custom-python')
             tag: Optional tag to identify the job run
+            parameters: Optional dict of parameters to pass as Keboola variables.
+                       Lists are JSON-encoded, numbers converted to strings automatically.
 
         Returns:
             Dictionary containing:
@@ -85,6 +90,7 @@ class KeboolaClient:
                     configuration_id=configuration_id,
                     component_id=component_id,
                     tag=tag,
+                    parameters=parameters,
                 )
 
                 logger.info(
@@ -156,6 +162,7 @@ class KeboolaClient:
         configuration_id: str,
         component_id: str,
         tag: Optional[str] = None,
+        parameters: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Execute the actual job trigger API call.
@@ -164,6 +171,9 @@ class KeboolaClient:
             configuration_id: The ID of the configuration to run
             component_id: Component ID (required)
             tag: Optional tag to identify the job run
+            parameters: Optional dict of parameters passed as variableValuesData.
+                       Lists, numbers, and strings are automatically converted to
+                       Keboola variable format (all values as strings).
 
         Returns:
             Dictionary with job information
@@ -178,9 +188,9 @@ class KeboolaClient:
         endpoint = f"{queue_url}/jobs"
 
         # Prepare headers
+        # Note: Don't set Content-Type - aiohttp sets it automatically for JSON
         headers = {
             "X-StorageApi-Token": self.storage_api_token,
-            "Content-Type": "application/json",
         }
 
         # Prepare payload with the correct format
@@ -193,17 +203,52 @@ class KeboolaClient:
         if tag:
             payload["tag"] = tag
 
+        # Add parameters as variableValuesData (inline variable values)
+        # See: https://developers.keboola.com/integrate/variables/#option-3--run-a-job-with-inline-values
+        if parameters:
+            # Convert parameters to variable values (all must be strings)
+            variable_values = []
+            for key, value in parameters.items():
+                if isinstance(value, list):
+                    # Arrays must be JSON-encoded strings
+                    variable_values.append({"name": key, "value": json.dumps(value)})
+                elif isinstance(value, (int, float)):
+                    # Numbers must be converted to strings
+                    variable_values.append({"name": key, "value": str(value)})
+                else:
+                    # Already a string
+                    variable_values.append({"name": key, "value": str(value)})
+
+            payload["variableValuesData"] = {
+                "values": variable_values
+            }
+
+        # DEBUG: Log the request details
+        logger.info(f"Keboola API Request to: {endpoint}")
+        logger.info(f"Payload: {json.dumps(payload, indent=2)}")
+        logger.info(f"Token (masked): {self._token_preview}")
+        logger.info(f"Token length: {len(self.storage_api_token)}")
+        logger.info(f"Token repr: {repr(self.storage_api_token[:20])}...")  # Check for whitespace
+
         # Create timeout
         timeout = aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT)
 
         # Execute the request
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(endpoint, json=payload, headers=headers) as response:
+                # Log response status
+                logger.info(f"Keboola API Response Status: {response.status}")
+
+                # Read response text for error logging
+                response_text = await response.text()
+
                 # Raise for HTTP errors
-                response.raise_for_status()
+                if response.status >= 400:
+                    logger.error(f"Keboola API Error Response: {response_text}")
+                    response.raise_for_status()
 
                 # Parse response
-                data = await response.json()
+                data = json.loads(response_text)
 
                 # Parse and normalize the response
                 return self._parse_job_response(data, configuration_id)

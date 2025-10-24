@@ -155,4 +155,97 @@ dev: install env db-init ## Complete development setup (install + env + db)
 	@echo "$(GREEN)Development environment is ready!$(NC)"
 	@echo "$(YELLOW)Run 'make run-api' to start the server$(NC)"
 
+# Docker commands
+.PHONY: docker-build
+docker-build: ## Build Docker image using distroless
+	@echo "$(BLUE)Building Docker image (distroless)...$(NC)"
+	@docker build -t teckochecker:latest .
+	@echo "$(GREEN)Docker image built successfully!$(NC)"
+
+.PHONY: docker-build-debug
+docker-build-debug: ## Build Docker debug image with shell access
+	@echo "$(BLUE)Building Docker debug image...$(NC)"
+	@docker build -f Dockerfile.debug -t teckochecker:debug .
+	@echo "$(GREEN)Docker debug image built successfully!$(NC)"
+
+.PHONY: docker-run
+docker-run: ## Run Docker container (requires SECRET_KEY env var)
+	@echo "$(BLUE)Starting TeckoChecker Docker container...$(NC)"
+	@if [ -z "$$SECRET_KEY" ]; then \
+		echo "$(RED)ERROR: SECRET_KEY environment variable is required$(NC)"; \
+		echo "$(YELLOW)Generate with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"$(NC)"; \
+		exit 1; \
+	fi
+	@docker run -d \
+		--name teckochecker \
+		-p 8000:8000 \
+		-e SECRET_KEY=$$SECRET_KEY \
+		-v teckochecker-data:/data \
+		teckochecker:latest
+	@echo "$(GREEN)Container started!$(NC)"
+	@echo "$(YELLOW)API: http://localhost:8000$(NC)"
+	@echo "$(YELLOW)Check logs: docker logs -f teckochecker$(NC)"
+
+.PHONY: docker-compose-up
+docker-compose-up: ## Start services with docker-compose (requires SECRET_KEY env var)
+	@echo "$(BLUE)Starting services with docker-compose...$(NC)"
+	@if [ -z "$$SECRET_KEY" ]; then \
+		echo "$(RED)ERROR: SECRET_KEY environment variable is required$(NC)"; \
+		echo "$(YELLOW)Generate with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"$(NC)"; \
+		exit 1; \
+	fi
+	@docker-compose up -d
+	@echo "$(GREEN)Services started!$(NC)"
+
+.PHONY: docker-compose-down
+docker-compose-down: ## Stop and remove docker-compose services
+	@echo "$(BLUE)Stopping services...$(NC)"
+	@docker-compose down
+	@echo "$(GREEN)Services stopped!$(NC)"
+
+.PHONY: docker-compose-logs
+docker-compose-logs: ## Show docker-compose logs
+	@docker-compose logs -f
+
+.PHONY: docker-stop
+docker-stop: ## Stop Docker container
+	@echo "$(BLUE)Stopping Docker container...$(NC)"
+	@docker stop teckochecker || true
+	@docker rm teckochecker || true
+	@echo "$(GREEN)Container stopped!$(NC)"
+
+.PHONY: docker-shell
+docker-shell: ## Open shell in debug container (starts debug container if not running)
+	@echo "$(BLUE)Opening shell in debug container...$(NC)"
+	@docker run -it --rm \
+		-e SECRET_KEY=$${SECRET_KEY:-dummy} \
+		-v teckochecker-data:/data \
+		--entrypoint /busybox/sh \
+		teckochecker:debug
+
+.PHONY: docker-clean
+docker-clean: docker-stop ## Remove Docker images and volumes
+	@echo "$(BLUE)Cleaning Docker resources...$(NC)"
+	@docker rmi teckochecker:latest 2>/dev/null || true
+	@docker rmi teckochecker:debug 2>/dev/null || true
+	@docker volume rm teckochecker-data 2>/dev/null || true
+	@echo "$(GREEN)Docker resources cleaned!$(NC)"
+
+.PHONY: docker-logs
+docker-logs: ## Show Docker container logs
+	@docker logs -f teckochecker
+
+.PHONY: docker-test
+docker-test: docker-build ## Test Docker image (requires SECRET_KEY env var)
+	@echo "$(BLUE)Testing Docker image...$(NC)"
+	@if [ -z "$$SECRET_KEY" ]; then \
+		SECRET_KEY=$$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"); \
+	fi; \
+	docker run --rm \
+		-e SECRET_KEY=$$SECRET_KEY \
+		-e DATABASE_URL=sqlite:////tmp/test.db \
+		teckochecker:latest \
+		doctor
+	@echo "$(GREEN)Docker image test passed!$(NC)"
+
 .DEFAULT_GOAL := help

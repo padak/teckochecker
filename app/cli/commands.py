@@ -5,7 +5,7 @@ This module implements all CLI commands for managing secrets, jobs, and the daem
 
 import sys
 import logging
-from typing import Optional
+from typing import Optional, List
 from pathlib import Path
 import typer
 import httpx
@@ -331,7 +331,12 @@ def secret_delete(
 @job_app.command("create")
 def job_create(
     name: str = typer.Option(..., "--name", "-n", help="Job name"),
-    batch_id: str = typer.Option(..., "--batch-id", "-b", help="OpenAI batch ID to monitor"),
+    batch_id: List[str] = typer.Option(
+        ...,
+        "--batch-id",
+        "-b",
+        help="[REPEATABLE] OpenAI batch ID to monitor. Use multiple times for multi-batch jobs (1-10 batches). Example: -b batch_1 -b batch_2 -b batch_3",
+    ),
     openai_secret: str = typer.Option(
         ...,
         "--openai-secret",
@@ -369,9 +374,41 @@ def job_create(
     """
     Create a new polling job.
 
-    This will start monitoring the specified OpenAI batch job and trigger
-    the Keboola configuration when it completes.
+    This will start monitoring the specified OpenAI batch job(s) and trigger
+    the Keboola configuration when all batches complete.
+
+    Examples:
+
+        Single batch job:
+        $ teckochecker job create -n "Job1" -b batch_abc123 --openai-secret api1 ...
+
+        Multi-batch job (repeat -b flag):
+        $ teckochecker job create -n "Multi-job" \\
+            -b batch_abc123 \\
+            -b batch_def456 \\
+            -b batch_ghi789 \\
+            --openai-secret api1 --keboola-secret kb1 ...
     """
+    # Validate batch_ids
+    if not batch_id:
+        print_error("At least one batch ID is required")
+        sys.exit(1)
+
+    if len(batch_id) > 10:
+        print_error(f"Too many batch IDs: {len(batch_id)} (maximum: 10)")
+        sys.exit(1)
+
+    # Check for duplicates
+    if len(batch_id) != len(set(batch_id)):
+        print_error("Duplicate batch IDs found. Each batch ID must be unique.")
+        sys.exit(1)
+
+    # Basic format validation (API will do more thorough validation)
+    for bid in batch_id:
+        if not bid.startswith("batch_"):
+            print_error(f"Invalid batch ID format: '{bid}' (must start with 'batch_')")
+            sys.exit(1)
+
     try:
         client = get_api_client()
 
@@ -397,7 +434,7 @@ def job_create(
             "/jobs",
             json={
                 "name": name,
-                "batch_id": batch_id,
+                "batch_ids": batch_id,  # Send as batch_ids (List[str])
                 "openai_secret_id": openai_secret_obj["id"],
                 "keboola_secret_id": keboola_secret_obj["id"],
                 "keboola_stack_url": keboola_stack,
@@ -409,7 +446,10 @@ def job_create(
         response.raise_for_status()
 
         job = response.json()
+        batch_count = len(batch_id)
+        batch_word = "batch" if batch_count == 1 else "batches"
         print_success(f"Job '{name}' (ID: {job['id']}) created successfully!")
+        print_info(f"Monitoring {batch_count} {batch_word}")
         print_info(f"Polling every {poll_interval} seconds")
 
     except Exception as e:

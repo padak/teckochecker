@@ -4,6 +4,10 @@ A lightweight polling orchestration system that monitors asynchronous job status
 
 ## Key Features
 
+- **Multi-Batch Monitoring** - Monitor up to 10 OpenAI batch jobs per polling job
+- **Intelligent Triggering** - Keboola triggered when all batches complete (with metadata)
+- **Batch Metadata** - Pass completion/failure info to Keboola jobs automatically
+- **Concurrent Processing** - Check multiple batches in parallel with semaphore control
 - **Web UI** - Terminal-style web interface for managing secrets, jobs, and monitoring
 - **Automated Monitoring** - Continuous polling of OpenAI batch job completion status
 - **Workflow Automation** - Automatic triggering of Keboola workflows when jobs complete
@@ -24,11 +28,29 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Setup (interactive wizard)
-python teckochecker.py setup
+# Initialize database and environment
+python teckochecker.py init --generate-env
+
+# Create API credentials
+teckochecker secret create --name openai-prod --type openai
+teckochecker secret create --name keboola-prod --type keboola
+
+# Create multi-batch polling job
+teckochecker job create \
+  --name "My first multi-batch job" \
+  --batch-id "batch_abc123" \
+  --batch-id "batch_def456" \
+  --openai-secret openai-prod \
+  --keboola-secret keboola-prod \
+  --keboola-stack https://connection.keboola.com \
+  --component-id kds-team.app-custom-python \
+  --config-id 12345
 
 # Start the service
 python teckochecker.py start
+
+# Monitor progress
+teckochecker job list
 
 # Open Web UI
 open http://127.0.0.1:8000/web
@@ -61,7 +83,8 @@ See [docs/prd.md](docs/prd.md) Web UI Requirements section for detailed document
 
 - [docs/prd.md](docs/prd.md) - Product requirements, specifications, and Web UI documentation
 - [docs/SETUP.md](docs/SETUP.md) - Detailed setup and configuration instructions
-- [docs/USER_GUIDE.md](docs/USER_GUIDE.md) - Comprehensive usage guide with command examples
+- [docs/USER_GUIDE.md](docs/USER_GUIDE.md) - Comprehensive usage guide with multi-batch examples
+- [docs/MIGRATION_v0.9_to_v1.0.md](docs/MIGRATION_v0.9_to_v1.0.md) - Migration guide from v0.9.x to v1.0
 - [docs/architecture/](docs/architecture/) - Technical architecture and design patterns
 
 ## Development

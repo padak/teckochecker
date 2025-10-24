@@ -139,112 +139,184 @@ class PollingService:
 
     async def _process_single_job(self, job: Any) -> None:
         """
-        Process a single polling job.
+        Process multi-batch polling check.
+
+        Logic:
+        1. Loop through all job.batches
+        2. For each non-terminal batch, check OpenAI status
+        3. Update batch status in database
+        4. If ALL batches terminal → trigger Keboola with metadata
+        5. Otherwise → reschedule next check
 
         Args:
             job: Job record to process
         """
         job_id = job.id
-        batch_id = job.batch_id
 
         try:
-            logger.info(f"Processing job {job_id} for batch {batch_id}")
+            logger.info(f"Processing job {job_id} with {len(job.batches)} batches")
 
-            # Get or create OpenAI client for this job
+            # Get OpenAI client for this job
             openai_client = await self._get_openai_client(job)
 
-            # Check batch status
-            status_result = await openai_client.check_batch_status(batch_id)
+            # Check each batch that's not yet terminal
+            batches_to_check = [b for b in job.batches if not b.is_terminal]
 
-            logger.info(f"Job {job_id}: Batch {batch_id} status is '{status_result['status']}'")
+            if not batches_to_check:
+                # All already terminal - shouldn't happen, but handle gracefully
+                if job.all_batches_terminal and job.status == "active":
+                    await self._trigger_keboola_with_results(job)
+                return
 
-            # Log the status check
-            await self._log_status_check(job_id, status_result)
+            logger.info(f"Job {job_id}: Checking {len(batches_to_check)} non-terminal batches")
 
-            # Handle based on status
-            if openai_client.is_success_status(status_result["status"]):
-                # Batch completed successfully - trigger Keboola job
-                await self._handle_batch_completion(job, status_result)
+            # Process batches concurrently (respects semaphore limit)
+            check_tasks = [
+                self._check_single_batch(openai_client, job_batch)
+                for job_batch in batches_to_check
+            ]
 
-            elif openai_client.is_terminal_status(status_result["status"]):
-                # Batch reached terminal state (failed, expired, cancelled)
-                await self._handle_batch_terminal(job, status_result)
+            await asyncio.gather(*check_tasks, return_exceptions=True)
 
-            else:
-                # Batch still in progress - reschedule next check
-                await self._reschedule_job(job)
+            # Refresh job from DB to get updated batch statuses
+            with self._create_db_session() as db:
+                from app.models import PollingJob
+                job = db.query(PollingJob).filter(PollingJob.id == job_id).first()
+                if not job:
+                    logger.error(f"Job {job_id} not found after batch checks")
+                    return
+
+                # Log current state
+                summary = job.batch_completion_summary
+                await self._log_status_check(
+                    job_id,
+                    {"status": "checking"},
+                    message=f"Batch status: {summary['completed']} completed, "
+                            f"{summary['failed']} failed, {summary['in_progress']} in progress"
+                )
+
+                # Check if all batches are terminal
+                if job.all_batches_terminal:
+                    await self._trigger_keboola_with_results(job)
+                    job.status = "completed_with_failures" if job.failed_batches else "completed"
+                    job.completed_at = datetime.now(timezone.utc)
+                    db.commit()
+                else:
+                    # Reschedule next check
+                    await self._reschedule_job(job)
 
         except Exception as e:
-            logger.error(f"Error processing job {job_id} for batch {batch_id}: {e}", exc_info=True)
+            logger.error(f"Error processing job {job_id}: {e}", exc_info=True)
             await self._handle_job_error(job, str(e))
 
-    async def _handle_batch_completion(self, job: Any, status_result: Dict[str, Any]) -> None:
+    async def _check_single_batch(
+        self,
+        openai_client: Any,
+        job_batch: Any
+    ) -> None:
         """
-        Handle successful batch completion by triggering Keboola job.
+        Check status of single batch and update database.
 
         Args:
-            job: Job record
-            status_result: Status result from OpenAI
+            openai_client: OpenAI client instance
+            job_batch: JobBatch instance to check
+        """
+        try:
+            status_result = await openai_client.check_batch_status(job_batch.batch_id)
+            new_status = status_result["status"]
+
+            logger.debug(f"Batch {job_batch.batch_id}: status '{new_status}'")
+
+            if new_status != job_batch.status:
+                with self._create_db_session() as db:
+                    from app.models import JobBatch
+
+                    # Get fresh batch instance from this session
+                    batch = db.query(JobBatch).filter(JobBatch.id == job_batch.id).first()
+                    if batch:
+                        batch.status = new_status
+
+                        if batch.is_terminal:
+                            batch.completed_at = datetime.now(timezone.utc)
+
+                        db.commit()
+                        logger.info(f"Batch {job_batch.batch_id}: status updated to '{new_status}'")
+
+        except Exception as e:
+            logger.error(f"Failed to check batch {job_batch.batch_id}: {str(e)}", exc_info=True)
+            await self._log_error(job_batch.job_id, f"Failed to check batch {job_batch.batch_id}: {str(e)}")
+
+    async def _trigger_keboola_with_results(self, job: Any) -> None:
+        """
+        Trigger Keboola job with batch completion metadata.
+
+        Passes parameters:
+        - batch_ids_completed: List of successfully completed batch IDs
+        - batch_ids_failed: List of failed/cancelled/expired batch IDs
+        - batch_count_total: Total number of batches
+        - batch_count_completed: Number of completed batches
+        - batch_count_failed: Number of failed batches
+
+        Args:
+            job: PollingJob instance with batches loaded
         """
         job_id = job.id
-        batch_id = job.batch_id
-
-        logger.info(f"Job {job_id}: Batch {batch_id} completed, triggering Keboola job")
 
         try:
+            logger.info(f"Job {job_id}: All batches terminal, triggering Keboola job")
+
             # Get or create Keboola client for this job
             keboola_client = await self._get_keboola_client(job)
 
-            # Trigger the Keboola job
+            # Prepare metadata to pass as Keboola variables
+            completed_ids = [b.batch_id for b in job.completed_batches]
+            failed_ids = [b.batch_id for b in job.failed_batches]
+
+            parameters = {
+                "batch_ids_completed": completed_ids,
+                "batch_ids_failed": failed_ids,
+                "batch_count_total": len(job.batches),
+                "batch_count_completed": len(completed_ids),
+                "batch_count_failed": len(failed_ids),
+            }
+
+            logger.info(f"Job {job_id}: Triggering Keboola with metadata: {parameters}")
+
+            # Trigger the Keboola job with parameters (sent as variableValuesData)
             trigger_result = await keboola_client.trigger_job(
                 configuration_id=job.keboola_configuration_id,
                 component_id=job.keboola_component_id,
-                tag=f"teckochecker-{job_id}",
+                parameters=parameters  # Pass batch metadata as Keboola variables
             )
 
             logger.info(
-                f"Job {job_id}: Successfully triggered Keboola job {trigger_result['job_id']}"
+                f"Job {job_id}: Successfully triggered Keboola job {trigger_result.get('job_id')} "
+                f"with {len(completed_ids)} completed, {len(failed_ids)} failed batches"
             )
 
             # Log the action
-            await self._log_action(job_id, action="keboola_triggered", result=trigger_result)
-
-            # Mark job as completed
-            with self._create_db_session() as db:
-                scheduler = JobScheduler(db)
-                scheduler.update_job_status(
-                    job_id, status="completed", completed_at=datetime.now(timezone.utc)
-                )
+            await self._log_action(
+                job_id,
+                action="keboola_triggered",
+                result=trigger_result
+            )
 
         except Exception as e:
             logger.error(f"Job {job_id}: Error triggering Keboola job: {e}", exc_info=True)
             await self._handle_job_error(job, f"Keboola trigger failed: {e}")
 
-    async def _handle_batch_terminal(self, job: Any, status_result: Dict[str, Any]) -> None:
-        """
-        Handle batch reaching a terminal state (failed, expired, cancelled).
+            # Mark job as failed
+            with self._create_db_session() as db:
+                from app.models import PollingJob
+                job_to_fail = db.query(PollingJob).filter(PollingJob.id == job_id).first()
+                if job_to_fail:
+                    job_to_fail.status = "failed"
+                    job_to_fail.completed_at = datetime.now(timezone.utc)
+                    db.commit()
 
-        Args:
-            job: Job record
-            status_result: Status result from OpenAI
-        """
-        job_id = job.id
-        batch_id = job.batch_id
-        status = status_result["status"]
-
-        logger.warning(f"Job {job_id}: Batch {batch_id} reached terminal status '{status}'")
-
-        # Log the terminal state
-        await self._log_status_check(
-            job_id, status_result, message=f"Batch reached terminal status: {status}"
-        )
-
-        # Mark job as failed
-        with self._create_db_session() as db:
-            scheduler = JobScheduler(db)
-            scheduler.update_job_status(
-                job_id, status="failed", completed_at=datetime.now(timezone.utc)
-            )
+    # OLD METHODS REMOVED - no longer needed for multi-batch architecture
+    # _handle_batch_completion() replaced by _trigger_keboola_with_results()
+    # _handle_batch_terminal() logic now handled in _process_single_job()
 
     async def _reschedule_job(self, job: Any) -> None:
         """

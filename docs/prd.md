@@ -127,7 +127,6 @@ CREATE TABLE secrets (
 CREATE TABLE polling_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    batch_id TEXT NOT NULL,
     openai_secret_id INTEGER,
     keboola_secret_id INTEGER,
     keboola_stack_url TEXT NOT NULL,
@@ -141,6 +140,18 @@ CREATE TABLE polling_jobs (
     completed_at TIMESTAMP,
     FOREIGN KEY (openai_secret_id) REFERENCES secrets(id),
     FOREIGN KEY (keboola_secret_id) REFERENCES secrets(id)
+);
+
+-- Job batches (multi-batch support)
+CREATE TABLE job_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    polling_job_id INTEGER NOT NULL,
+    batch_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'in_progress',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP,
+    FOREIGN KEY (polling_job_id) REFERENCES polling_jobs(id) ON DELETE CASCADE,
+    UNIQUE(polling_job_id, batch_id)
 );
 
 -- Polling logs (optional for debugging)
@@ -192,6 +203,8 @@ teckochecker secret list
 teckochecker secret delete openai-prod
 
 # Jobs management
+
+# Single batch job
 teckochecker job create \
   --name "My Batch Job" \
   --batch-id "batch_abc123" \
@@ -201,6 +214,19 @@ teckochecker job create \
   --component-id "kds-team.app-custom-python" \
   --config-id "123456" \
   --poll-interval 60  # seconds
+
+# Multi-batch job (1-10 batches)
+teckochecker job create \
+  --name "Multi-Batch Job" \
+  --batch-id "batch_abc123" \
+  --batch-id "batch_def456" \
+  --batch-id "batch_ghi789" \
+  --openai-secret "openai-prod" \
+  --keboola-secret "keboola-prod" \
+  --keboola-stack "https://connection.eu-central-1.keboola.com" \
+  --component-id "kds-team.app-custom-python" \
+  --config-id "123456" \
+  --poll-interval 120
 
 teckochecker job list
 teckochecker job show 1
@@ -621,7 +647,7 @@ Jobs are triggered via POST to `https://queue.{region}.keboola.com/jobs` with:
 
 ---
 
-*Document Version: 2.0*
-*Last Updated: 2025-10-22*
-*Status: MVP Complete - Web UI Integrated*
-*Note: Web UI documentation consolidated from WEB_UI.md and WEB_UI_IMPLEMENTATION.md*
+*Document Version: 3.0*
+*Last Updated: 2025-10-23*
+*Status: v1.0 Complete - Multi-Batch Support Integrated*
+*Note: Multi-batch polling (1-10 batches per job) with intelligent triggering when all batches terminal*

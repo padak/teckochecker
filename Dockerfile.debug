@@ -1,0 +1,45 @@
+# Debug Dockerfile with shell access for troubleshooting
+# Uses distroless debug variant which includes busybox shell
+
+# Stage 1: Builder - install dependencies
+FROM python:3.11-slim as builder
+
+WORKDIR /app
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+COPY app/ ./app/
+COPY scripts/ ./scripts/
+COPY teckochecker.py .
+
+# Create /data directory with permissions for nonroot user (UID 65532)
+RUN mkdir -p /data && chown -R 65532:65532 /data
+
+# Stage 2: Runtime - distroless debug image with busybox
+FROM gcr.io/distroless/python3-debian12:debug-nonroot
+
+WORKDIR /app
+
+COPY --from=builder /install /usr/local
+COPY --from=builder /app /app
+
+# Copy /data directory with correct permissions from builder
+COPY --from=builder --chown=65532:65532 /data /data
+
+ENV PYTHONPATH=/usr/local/lib/python3.11/site-packages:/app
+ENV PYTHONUNBUFFERED=1
+
+USER nonroot
+
+EXPOSE 8000
+
+# Debug image allows shell access via /busybox/sh
+# Configuration is loaded from environment variables
+ENTRYPOINT ["python3", "teckochecker.py"]
+CMD ["start"]

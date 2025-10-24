@@ -6,6 +6,8 @@ class TeckoApp {
     constructor() {
         this.autoRefreshInterval = null;
         this.autoRefreshEnabled = false;
+        this.jobsRefreshInterval = null;  // Auto-refresh for jobs tab
+        this.currentTab = 'jobs';  // Track active tab
         this.init();
     }
 
@@ -32,12 +34,23 @@ class TeckoApp {
         this.loadJobs();
         this.loadStats();
         this.loadHealth();
+
+        // Start auto-refresh for jobs (default tab)
+        this.startJobsAutoRefresh();
     }
 
     /**
      * Switch between tabs
      */
     switchTab(tabName) {
+        // Stop jobs auto-refresh when leaving jobs tab
+        if (this.currentTab === 'jobs' && tabName !== 'jobs') {
+            this.stopJobsAutoRefresh();
+        }
+
+        // Update current tab
+        this.currentTab = tabName;
+
         // Update tab buttons
         document.querySelectorAll('.nav-tab').forEach(tab => {
             tab.classList.toggle('active', tab.dataset.tab === tabName);
@@ -55,6 +68,7 @@ class TeckoApp {
                 break;
             case 'jobs':
                 this.loadJobs();
+                this.startJobsAutoRefresh();  // Start auto-refresh for jobs
                 break;
             case 'monitor':
                 this.loadStats();
@@ -157,22 +171,43 @@ class TeckoApp {
         }
 
         tbody.innerHTML = jobs.map(job => `
-            <tr>
+            <tr onclick="app.showJobDetail(${job.id})" style="cursor: pointer;">
                 <td class="text-dim">${job.id}</td>
                 <td>${this.escapeHtml(job.name)}</td>
-                <td class="text-dim">${this.escapeHtml(job.batch_id)}</td>
+                <td>
+                    ${this.renderBatchSummary(job)}
+                </td>
                 <td>
                     <span class="status-dot ${job.status}"></span>
                     ${job.status}
                 </td>
                 <td class="text-dim">
-                    ${job.next_check_at ? this.formatRelativeTime(job.next_check_at) : '-'}
+                    ${this.formatNextCheck(job)}
                 </td>
-                <td>
+                <td onclick="event.stopPropagation();">
                     ${this.renderJobActions(job)}
                 </td>
             </tr>
         `).join('');
+    }
+
+    renderBatchSummary(job) {
+        const batchCount = job.batch_count || 0;
+        const completedCount = job.completed_count || 0;
+        const failedCount = job.failed_count || 0;
+        const inProgressCount = batchCount - completedCount - failedCount;
+
+        let html = `<span class="batch-badge">${completedCount}/${batchCount} completed</span>`;
+
+        if (inProgressCount > 0) {
+            html += ` <span class="batch-badge in-progress">${inProgressCount} in progress</span>`;
+        }
+
+        if (failedCount > 0) {
+            html += ` <span class="batch-badge failed">${failedCount} failed</span>`;
+        }
+
+        return html;
     }
 
     renderJobActions(job) {
@@ -213,19 +248,49 @@ class TeckoApp {
     async handleAddJob(e) {
         e.preventDefault();
         const formData = new FormData(e.target);
-        const data = Object.fromEntries(formData);
 
-        // Convert IDs to integers
-        data.openai_secret_id = parseInt(data.openai_secret_id);
-        data.keboola_secret_id = parseInt(data.keboola_secret_id);
-        data.poll_interval_seconds = parseInt(data.poll_interval_seconds);
+        // Parse batch_ids textarea into array
+        const batchIdsText = formData.get('batch_ids');
+        const batchIds = batchIdsText
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0);
+
+        // Validation
+        if (batchIds.length === 0) {
+            this.showError('Validation Error', new Error('At least one batch ID is required'));
+            return;
+        }
+        if (batchIds.length > 10) {
+            this.showError('Validation Error', new Error('Maximum 10 batch IDs allowed'));
+            return;
+        }
+
+        // Validate batch_id format
+        const invalidBatches = batchIds.filter(id => !id.startsWith('batch_'));
+        if (invalidBatches.length > 0) {
+            this.showError('Validation Error', new Error(`Invalid batch ID format: ${invalidBatches[0]} (must start with 'batch_')`));
+            return;
+        }
+
+        // Build payload
+        const data = {
+            name: formData.get('name'),
+            batch_ids: batchIds,
+            openai_secret_id: parseInt(formData.get('openai_secret_id')),
+            keboola_secret_id: parseInt(formData.get('keboola_secret_id')),
+            keboola_stack_url: formData.get('keboola_stack_url'),
+            keboola_component_id: formData.get('keboola_component_id'),
+            keboola_configuration_id: formData.get('keboola_configuration_id'),
+            poll_interval_seconds: parseInt(formData.get('poll_interval_seconds'))
+        };
 
         try {
             await api.createJob(data);
             this.closeModal('add-job-modal');
             e.target.reset();
             this.loadJobs();
-            this.showSuccess('Job created successfully');
+            this.showSuccess(`Job created with ${batchIds.length} batch ID${batchIds.length > 1 ? 's' : ''}`);
         } catch (error) {
             this.showError('Failed to create job', error);
         }
@@ -262,6 +327,104 @@ class TeckoApp {
             this.showSuccess('Job deleted');
         } catch (error) {
             this.showError('Failed to delete job', error);
+        }
+    }
+
+    /**
+     * Start auto-refresh for jobs (every 10 seconds)
+     */
+    startJobsAutoRefresh() {
+        // Clear existing interval if any
+        this.stopJobsAutoRefresh();
+
+        // Refresh every 10 seconds
+        this.jobsRefreshInterval = setInterval(() => {
+            this.loadJobs();
+        }, 10000);
+    }
+
+    /**
+     * Stop auto-refresh for jobs
+     */
+    stopJobsAutoRefresh() {
+        if (this.jobsRefreshInterval) {
+            clearInterval(this.jobsRefreshInterval);
+            this.jobsRefreshInterval = null;
+        }
+    }
+
+    async showJobDetail(jobId) {
+        try {
+            const job = await api.getJob(jobId);
+
+            // Build batches table HTML
+            const batchesHtml = job.batches && job.batches.length > 0
+                ? job.batches.map(batch => `
+                    <tr>
+                        <td class="text-secondary">${this.escapeHtml(batch.batch_id)}</td>
+                        <td class="status-${batch.status}">${batch.status}</td>
+                        <td class="text-dim">${this.formatDate(batch.created_at)}</td>
+                        <td class="text-dim">${batch.completed_at ? this.formatDate(batch.completed_at) : '-'}</td>
+                    </tr>
+                  `).join('')
+                : '<tr><td colspan="4" class="text-muted text-center">No batches found</td></tr>';
+
+            // Create modal HTML
+            const modalHtml = `
+                <div id="job-detail-modal" class="modal active">
+                    <div class="modal-content" style="max-width: 800px;">
+                        <div class="modal-header">
+                            <h2 class="modal-title">Job #${job.id}: ${this.escapeHtml(job.name)}</h2>
+                        </div>
+
+                        <div class="mb-20">
+                            <h3 class="text-secondary mb-10">> Batch Status</h3>
+                            <table class="batches-table">
+                                <thead>
+                                    <tr>
+                                        <th>Batch ID</th>
+                                        <th>Status</th>
+                                        <th>Created</th>
+                                        <th>Completed</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${batchesHtml}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="mb-20">
+                            <h3 class="text-secondary mb-10">> Summary</h3>
+                            <div class="text-dim">
+                                <div class="mb-10">Total batches: <span class="text-primary">${job.batch_count || 0}</span></div>
+                                <div class="mb-10">Completed: <span class="text-success">${job.completed_count || 0}</span></div>
+                                <div class="mb-10">Failed: <span class="text-error">${job.failed_count || 0}</span></div>
+                                <div class="mb-10">In progress: <span class="text-warning">${(job.batch_count || 0) - (job.completed_count || 0) - (job.failed_count || 0)}</span></div>
+                                <div class="mb-10">Status: <span class="status-dot ${job.status}"></span> ${job.status}</div>
+                                <div class="mb-10">Poll interval: <span class="text-primary">${job.poll_interval_seconds}s</span></div>
+                            </div>
+                        </div>
+
+                        <div class="btn-group">
+                            <button type="button" class="btn btn-primary" onclick="app.closeModal('job-detail-modal')">Close</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Insert modal into DOM
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            // Add click outside to close
+            const modal = document.getElementById('job-detail-modal');
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    this.closeModal('job-detail-modal');
+                }
+            });
+        } catch (error) {
+            this.showError('Failed to load job details', error);
         }
     }
 
@@ -366,7 +529,14 @@ class TeckoApp {
     // ==================== Utilities ====================
 
     closeModal(modalId) {
-        document.getElementById(modalId).classList.remove('active');
+        const modal = document.getElementById(modalId);
+        if (modal) {
+            modal.classList.remove('active');
+            // Remove dynamically created modals from DOM
+            if (modalId === 'job-detail-modal') {
+                modal.remove();
+            }
+        }
     }
 
     showSuccess(message) {
@@ -407,6 +577,35 @@ class TeckoApp {
         if (diff < 60) return `in ${diff}s`;
         if (diff < 3600) return `in ${Math.floor(diff / 60)}m`;
         return `in ${Math.floor(diff / 3600)}h`;
+    }
+
+    formatNextCheck(job) {
+        // For terminal states (completed, failed), show "Never"
+        if (job.status === 'completed' || job.status === 'failed' || job.status === 'completed_with_failures') {
+            return 'Never';
+        }
+
+        // For paused jobs, show "Paused"
+        if (job.status === 'paused') {
+            return 'Paused';
+        }
+
+        // For active jobs, check if next_check_at is in the past
+        if (job.next_check_at) {
+            const date = new Date(job.next_check_at);
+            const now = new Date();
+            const diff = Math.floor((date - now) / 1000);
+
+            // If next_check is in the past, job is likely checking now
+            if (diff < 0) {
+                return 'checking...';
+            }
+
+            // Otherwise show relative time
+            return this.formatRelativeTime(job.next_check_at);
+        }
+
+        return '-';
     }
 
     handleCommand(command) {

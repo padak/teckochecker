@@ -67,7 +67,7 @@
                             <tr>
                                 <th>ID</th>
                                 <th>Name</th>
-                                <th>Batch ID</th>
+                                <th>Batches</th>
                                 <th>Status</th>
                                 <th>Next Check</th>
                                 <th>Actions</th>
@@ -195,8 +195,10 @@ POST /api/jobs/{id}/resume    Resume job</pre>
                     <input type="text" class="form-control" name="name" placeholder="My Batch Job" required>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">OpenAI Batch ID</label>
-                    <input type="text" class="form-control" name="batch_id" placeholder="batch_abc123" required>
+                    <label class="form-label">OpenAI Batch IDs (one per line)</label>
+                    <textarea class="form-control" name="batch_ids" rows="5"
+                              placeholder="batch_abc123&#10;batch_def456&#10;batch_ghi789" required></textarea>
+                    <small class="text-muted">Enter up to 10 batch IDs, one per line</small>
                 </div>
                 <div class="form-group">
                     <label class="form-label">OpenAI Secret</label>

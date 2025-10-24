@@ -70,7 +70,12 @@ alembic.ini
 *.swo
 *~
 .DS_Store
+.playwright-mcp/
+.ruff_cache/
 
 # Backup files
 *.bak
 *.backup
+
+# Docker
+.dockerignore
