@@ -7,9 +7,9 @@ services:
     container_name: teckochecker
     restart: unless-stopped
 
-    # Port mapping for API
+    # Port mapping for API - bind to localhost only (Caddy will proxy)
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
 
     # Environment variables
     environment:
@@ -83,6 +83,36 @@ services:
     entrypoint: ["/busybox/sh"]
     command: []
 
+  # Caddy reverse proxy with automatic HTTPS
+  caddy:
+    image: caddy:2-alpine
+    container_name: teckochecker-caddy
+    restart: unless-stopped
+
+    ports:
+      - "80:80"      # HTTP (for Let's Encrypt challenge)
+      - "443:443"    # HTTPS
+      - "443:443/udp" # HTTP/3
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+    depends_on:
+      - teckochecker
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 volumes:
   teckochecker-data:
+    driver: local
+  caddy-data:
+    driver: local
+  caddy-config:
     driver: local
