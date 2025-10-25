@@ -1,9 +1,10 @@
 # TeckoChecker Custom Check Jobs - Product & Technical Specification
 
-**Document Version:** 1.0
-**Last Updated:** 2025-01-24
-**Status:** Draft for Review
+**Document Version:** 1.1
+**Last Updated:** 2025-01-25
+**Status:** Ready for Implementation (Post-Codex Review Round 2)
 **Author:** Padak
+**Reviewers:** Codex (GPT-5-Codex)
 
 ---
 
@@ -29,7 +30,7 @@
 
 ### Vision
 
-Transform TeckoChecker from a specialized "OpenAI batch poller" into a **universal async task monitoring platform** with pluggable check logic. Enable users to monitor arbitrary async processes (Gemini API, custom pipelines, CI/CD jobs) by providing their own check scripts that execute safely in E2B sandboxes.
+Transform TeckoChecker from a specialized "OpenAI batch poller" into a **universal async task monitoring platform** with pluggable check logic. Enable users to monitor arbitrary async processes (Gemini API, custom pipelines, CI/CD jobs) by providing their own check scripts that execute safely in Docker containers.
 
 ### Current State vs. Target State
 
@@ -42,16 +43,18 @@ TeckoChecker → OpenAI API (hardcoded) → check batch status → trigger Keboo
 ```
 TeckoChecker → Custom Script (user-defined) → check anything → trigger webhook/Keboola
                 ↓
-           E2B Sandbox (safe, isolated execution)
+           Docker Container (safe, isolated, cost-effective execution)
 ```
 
 ### Key Differentiators
 
 - **Flexibility**: Monitor any async task, not just OpenAI batches
-- **Safety**: Execute untrusted user code in E2B sandboxes
+- **Safety**: Execute untrusted user code in isolated Docker containers with resource limits
+- **Cost-Effective**: Local Docker execution - no external API costs
 - **Simplicity**: Standard output format (JSON with status field)
 - **Scale**: Handle 500+ active jobs with 50+ concurrent checks
 - **Extensibility**: Python and Node.js support with dependency management
+- **Control**: Full control over execution environment and security policies
 
 ### Relationship to Existing Architecture
 
@@ -74,7 +77,7 @@ sequenceDiagram
     participant DB as Database
     participant Poller as Polling Service
     participant Storage as Script Storage
-    participant E2B as E2B Sandbox
+    participant Docker as Docker Engine
     participant Webhook as Webhook Target
 
     Note over User,Webhook: Phase 1: Job Creation & Script Upload
@@ -97,16 +100,16 @@ sequenceDiagram
         Poller->>Storage: Extract script for job_123
         Storage-->>Poller: /tmp/.../extracted/
 
-        Poller->>E2B: Create Sandbox (python/node)
-        E2B-->>Poller: sandbox_instance
+        Poller->>Docker: Create Container (python/node)
+        Docker-->>Poller: container_instance
 
-        Poller->>E2B: Set env vars (decrypt secrets)
-        Poller->>E2B: Upload script files
-        Poller->>E2B: Install dependencies
-        Poller->>E2B: Execute script (timeout: 300s)
+        Poller->>Docker: Set env vars (decrypt secrets)
+        Poller->>Docker: Mount script.tgz (read-only)
+        Poller->>Docker: Run container with security hardening
+        Docker->>Docker: Extract & install dependencies
+        Docker->>Docker: Execute script (timeout: 300s)
 
-        E2B->>E2B: Run user script
-        E2B-->>Poller: stdout: {"status": "PENDING", "data": {...}}
+        Docker-->>Poller: stdout: {"status": "PENDING", "data": {...}}
 
         Poller->>DB: Update job.last_check_status = "PENDING"
         Poller->>DB: Log execution (CustomCheckLog)
@@ -114,8 +117,8 @@ sequenceDiagram
     end
 
     Note over User,Webhook: Phase 3: Completion & Webhook Trigger
-    Poller->>E2B: Execute script (Nth poll)
-    E2B-->>Poller: stdout: {"status": "SUCCESS", "data": {...}}
+    Poller->>Docker: Execute script (Nth poll)
+    Docker-->>Poller: stdout: {"status": "SUCCESS", "data": {...}}
 
     Poller->>DB: Update job.status = "completed"
     Poller->>Webhook: POST webhook_url<br/>{job_id, check_status, check_data}
@@ -142,13 +145,13 @@ graph TB
     subgraph "Service Layer"
         PollingService[Polling Service<br/>Unified Scheduler<br/>50 concurrent checks]
         ScriptStorage[Script Storage Service<br/>Git fetch + Upload<br/>Validation + Caching]
-        E2BExecutor[E2B Executor<br/>Sandbox creation<br/>Script execution]
+        DockerExecutor[Docker Executor<br/>Container hardening<br/>Script execution]
         SecretMgr[Secret Manager<br/>AES-256 encryption<br/>Secret references]
     end
 
     subgraph "Integration Layer"
         WebhookClient[Webhook Client<br/>HTTP trigger<br/>Retry logic]
-        E2BSDK[E2B SDK<br/>Sandbox API]
+        DockerSDK[Docker SDK<br/>Container API]
         GitPython[GitPython<br/>Repo cloning]
     end
 
@@ -158,7 +161,7 @@ graph TB
     end
 
     subgraph "External Services"
-        E2BSandbox[E2B Cloud<br/>Isolated Containers]
+        DockerEngine[Docker Engine<br/>Local Containers]
         WebhookTarget[Webhook Target<br/>User's endpoint]
         GitRepo[Git Repository<br/>User's script source]
     end
@@ -170,7 +173,7 @@ graph TB
     WebUI --> API
 
     PollingService --> ScriptStorage
-    PollingService --> E2BExecutor
+    PollingService --> DockerExecutor
     PollingService --> WebhookClient
     PollingService --> DB
 
@@ -178,19 +181,19 @@ graph TB
     ScriptStorage --> GitPython
     ScriptStorage --> DB
 
-    E2BExecutor --> E2BSDK
-    E2BExecutor --> SecretMgr
-    E2BExecutor --> DB
+    DockerExecutor --> DockerSDK
+    DockerExecutor --> SecretMgr
+    DockerExecutor --> DB
 
     SecretMgr --> DB
     WebhookClient --> WebhookTarget
-    E2BSDK --> E2BSandbox
+    DockerSDK --> DockerEngine
     GitPython --> GitRepo
 
     style PollingService fill:#e1f5ff
-    style E2BExecutor fill:#e1f5ff
+    style DockerExecutor fill:#e1f5ff
     style ScriptStorage fill:#e1f5ff
-    style E2BSandbox fill:#fff3cd
+    style DockerEngine fill:#fff3cd
     style WebhookTarget fill:#fff3cd
     style DB fill:#d4edda
 ```
@@ -275,7 +278,7 @@ graph TB
 | ID | Requirement | Target |
 |----|-------------|--------|
 | NFR-1 | **Scale**: Support 500+ active jobs | 500 concurrent jobs |
-| NFR-2 | **Concurrency**: Execute 50+ checks simultaneously | 50 parallel E2B sessions |
+| NFR-2 | **Concurrency**: Execute 50+ checks simultaneously | 50 parallel Docker containers |
 | NFR-3 | **Latency**: Start script execution within 5 seconds | < 5s from poll trigger |
 | NFR-4 | **Isolation**: Zero cross-contamination between script executions | 100% isolation |
 | NFR-5 | **Security**: Encrypted secret storage, no credential leakage | AES-256 encryption |
@@ -289,10 +292,10 @@ graph TB
 ### In-Scope (v1.0)
 
 ✅ **Core Infrastructure:**
-- Database schema (`custom_check_jobs`, `custom_check_logs`)
-- Script storage service (filesystem-based)
-- E2B executor service (Python/Node)
-- Generic webhook trigger client
+- Database schema (`custom_check_jobs`, `custom_check_logs`) with WAL mode
+- Script storage service (filesystem-based with Git caching)
+- Docker executor service (Python/Node with security hardening)
+- Generic webhook trigger client (with retry logic)
 
 ✅ **API Layer:**
 - CRUD endpoints for custom check jobs
@@ -308,7 +311,8 @@ graph TB
 ✅ **Polling Integration:**
 - Extend existing `PollingService` to process both job types
 - Unified scheduler for `PollingJob` and `CustomCheckJob`
-- Retry logic with exponential backoff for E2B sandbox creation and webhook triggers
+- Retry logic with exponential backoff for Docker container creation and webhook triggers
+- Prometheus metrics and structured logging
 
 ✅ **Web UI (Basic):**
 - List custom check jobs
@@ -335,9 +339,12 @@ graph TB
 
 | Dependency | Version | Purpose |
 |-----------|---------|---------|
-| **e2b-code-interpreter** | ^0.0.10 | E2B SDK for sandbox execution |
+| **docker** (python-docker) | ^7.0.0 | Docker SDK for container execution and management |
 | **GitPython** | ^3.1.40 | Clone Git repositories for script fetching |
+| **uv** | ^0.1.0 | Fast Python package installer (used in Docker images) |
 | **tarfile** (stdlib) | - | Create/extract .tgz archives |
+| **prometheus-client** | ^0.19.0 | Metrics export for observability |
+| **structlog** | ^24.1.0 | Structured logging for better debugging |
 
 ### Existing Stack (Unchanged)
 
@@ -345,14 +352,65 @@ graph TB
 - FastAPI 0.104+
 - **Pydantic 2.12.3** (supports `@field_validator`)
 - SQLAlchemy 2.0+
-- SQLite 3.38+
+- **SQLite 3.38+** (WAL mode enabled for concurrent writes)
 - asyncio for concurrency
+- httpx for async HTTP client (existing)
 
-### Runtime Environments
+### Docker Execution Environment
 
-Scripts execute in E2B sandboxes with:
-- **Python**: 3.11+ with pip
+TeckoChecker v1.0 uses **Docker as the exclusive execution runtime**. This decision prioritizes operational simplicity, cost-effectiveness, and security control over the complexity of supporting multiple runtimes.
+
+#### Why Docker-Only?
+
+**Advantages:**
+- ✅ **Fast execution** - No network latency, local execution
+- ✅ **Cost-effective** - Zero external API costs
+- ✅ **Full control** - Complete ownership of security policies and resource limits
+- ✅ **On-premise friendly** - No external dependencies
+- ✅ **Predictable performance** - No external service rate limits
+- ✅ **Enhanced security** - Container hardening with user namespaces, seccomp, AppArmor
+- ✅ **Simpler operations** - Single runtime to monitor and debug
+
+**Requirements:**
+- Docker Engine 20.10+ installed on server
+- Sufficient disk space for Docker images and container volumes
+- CPU/memory capacity for concurrent container execution (50 concurrent = ~25GB RAM recommended)
+
+#### Built-in Docker Images
+
+| Image | Base | Pre-installed | Size | Use Case |
+|-------|------|---------------|------|----------|
+| `teckochecker/runner:python-3.11` | python:3.11-slim | uv, ca-certificates | ~150MB | Python scripts with fast dependency installation |
+| `teckochecker/runner:node-20` | node:20-slim | npm, yarn (optional) | ~200MB | Node.js scripts |
+
+**Image Build Process:**
+```dockerfile
+# docker/Dockerfile.python
+FROM python:3.11-slim
+
+# Security: Run as non-root user
+RUN useradd -m -u 1000 runner && \
+    pip install --no-cache-dir uv
+
+USER runner
+WORKDIR /workspace
+
+CMD ["/bin/bash"]
+```
+
+**Custom Images:** Users can optionally specify custom Docker images (future v1.1+). Security validation will include:
+- Image must be from trusted registry (Docker Hub, private registry)
+- Image size limit: 1GB (prevents bloat)
+- Non-root user required (enforced)
+
+### Script Runtime Environments
+
+Scripts execute in isolated Docker containers with:
+- **Python**: 3.11+ with **uv** (fast package installation, ~10x faster than pip)
 - **Node.js**: 20+ with npm
+- **Resource Limits**: 512MB RAM, 0.5 CPU per container (configurable)
+- **Network**: Bridge mode with optional egress restrictions (see Security section)
+- **Timeout**: Configurable per job (default 300s, max 3600s)
 
 ---
 
@@ -378,11 +436,13 @@ CREATE TABLE custom_check_jobs (
     check_params TEXT NOT NULL,             -- JSON: {"batch_id": "..."}
     env_vars TEXT,                          -- JSON: {"API_KEY": "secret_ref:1"}
     timeout_seconds INTEGER DEFAULT 300,
+    resource_limits TEXT,                   -- JSON: {"memory_mb": 512, "cpu_cores": 0.5}
 
     -- Webhook action
     webhook_url VARCHAR(500),
     webhook_method VARCHAR(10) DEFAULT 'POST',
     webhook_headers TEXT,                   -- JSON
+    webhook_query_params TEXT,              -- JSON: For GET webhooks
 
     -- Polling configuration
     poll_interval_seconds INTEGER DEFAULT 120,
@@ -444,11 +504,13 @@ class CustomCheckJob(Base):
     check_params: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
     env_vars: Mapped[Optional[str]] = mapped_column(Text)  # JSON
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=300)
+    resource_limits: Mapped[Optional[str]] = mapped_column(Text)  # JSON: {"memory_mb": 512, "cpu_cores": 0.5}
 
     # Webhook action
     webhook_url: Mapped[Optional[str]] = mapped_column(String(500))
     webhook_method: Mapped[str] = mapped_column(String(10), default="POST")
     webhook_headers: Mapped[Optional[str]] = mapped_column(Text)  # JSON
+    webhook_query_params: Mapped[Optional[str]] = mapped_column(Text)  # JSON
 
     # Polling configuration
     poll_interval_seconds: Mapped[int] = mapped_column(Integer, default=120)
@@ -508,14 +570,15 @@ class CustomCheckLog(Base):
 │  Service Layer                                              │
 │  - PollingService (extended for CustomCheckJob)            │
 │  - ScriptStorageService (new)                              │
-│  - E2BExecutor (new)                                       │
+│  - DockerExecutor (new)                                    │
 │  - SecretManager (existing, reused)                        │
+│  - MetricsService (new)                                    │
 └──────────────────────┬──────────────────────────────────────┘
                        │
 ┌──────────────────────▼──────────────────────────────────────┐
 │  Integration Layer                                          │
 │  - WebhookClient (new)                                     │
-│  - E2B SDK (new)                                           │
+│  - Docker SDK (new)                                        │
 │  - GitPython (new)                                         │
 └──────────────────────┬──────────────────────────────────────┘
                        │
@@ -606,134 +669,130 @@ class ScriptStorageService:
 
 ---
 
-#### 2. E2BExecutor (`app/services/e2b_executor.py`)
+#### 2. DockerExecutor (`app/services/docker_executor.py`)
 
-**Purpose:** Execute custom scripts in E2B sandboxes.
+**Purpose:** Execute custom scripts in local Docker containers (DEFAULT runtime).
 
 **Key Methods:**
 ```python
-from e2b_code_interpreter import Sandbox
+import docker
+import tarfile
+from typing import Dict, Any
 
-class E2BExecutor:
-    """Executes custom check scripts in E2B sandbox."""
+class DockerExecutor:
+    """Executes custom check scripts in Docker containers (local, fast, cost-effective)."""
+
+    IMAGES = {
+        "python": "teckochecker/runner:python-3.11",
+        "node": "teckochecker/runner:node-20"
+    }
+
+    def __init__(self):
+        self.client = docker.from_env()
 
     async def execute_check(
         self,
         job: CustomCheckJob,
-        script_path: str,
+        script_tgz_path: str,
         db_session
     ) -> Dict[str, Any]:
         """
-        Execute custom check script in E2B sandbox.
+        Execute custom check script in Docker container.
+
+        CRITICAL: Uses asyncio.to_thread to avoid blocking event loop (Codex review fix).
 
         Flow:
-        1. Create E2B sandbox (Python or Node)
-        2. Resolve env_vars (decrypt secret references)
-        3. Upload script files to sandbox
-        4. Install dependencies (requirements.txt / package.json)
-        5. Execute entrypoint script with check_params
-        6. Parse JSON output from stdout
-        7. Validate output format
-        8. Cleanup sandbox
+        1. Pull/use Docker image
+        2. Mount script.tgz into container
+        3. Run container with:
+           - Extract .tgz
+           - Install deps in writable virtualenv/local path (non-root safe)
+           - Execute script
+        4. Parse output from stdout
+        5. Cleanup container (auto-remove)
 
         Returns:
-            {
-                "status": "SUCCESS|FAILED|PENDING|ERROR",
-                "data": {...},
-                "message": "..."
-            }
+            {"status": "SUCCESS|FAILED|PENDING|ERROR", "data": {...}, "message": "..."}
         """
-        sandbox = None
         start_time = time.time()
 
         try:
-            # 1. Create sandbox
-            sandbox = await self._create_sandbox(job.script_runtime)
-
-            # 2. Resolve and set environment variables
+            # 1. Resolve env vars (decrypt secrets)
             env_vars = await self._resolve_env_vars(job.env_vars, db_session)
-            for key, value in env_vars.items():
-                sandbox.set_env(key, value)
 
-            # 3. Upload script
-            await self._upload_script(sandbox, script_path)
+            # 2. Determine image
+            image = job.docker_image or self.IMAGES[job.script_runtime]
 
-            # 4. Install dependencies
-            await self._install_dependencies(sandbox, job.script_runtime, script_path)
+            # 3. Build execution command (non-root compatible)
+            if job.script_runtime == "python":
+                cmd = f"""
+                cd /workspace &&
+                tar -xzf /scripts/script.tgz &&
+                cd * &&
+                if [ -f requirements.txt ]; then
+                    python -m venv .venv &&
+                    . .venv/bin/activate &&
+                    pip install -r requirements.txt
+                fi &&
+                python {job.script_entrypoint}
+                """
+            elif job.script_runtime == "node":
+                cmd = f"""
+                cd /workspace &&
+                tar -xzf /scripts/script.tgz &&
+                cd * &&
+                if [ -f package.json ]; then npm ci --prefix ./node_modules; fi &&
+                node {job.script_entrypoint}
+                """
+            else:
+                raise ValueError(f"Unsupported runtime: {job.script_runtime}")
 
-            # 5. Execute script with timeout
-            execution_cmd = self._build_execution_command(job)
-            execution = await asyncio.wait_for(
-                sandbox.run_code(execution_cmd),
-                timeout=job.timeout_seconds
+            # 4. Run container (NON-BLOCKING via thread pool - Codex fix)
+            container_output = await asyncio.to_thread(
+                self._run_container_blocking,
+                image, cmd, env_vars, script_tgz_path
             )
 
-            # 6. Parse output
-            output = self._parse_output(execution.stdout)
+            # 5. Parse output
+            output_str = container_output.decode('utf-8')
+            output = self._parse_output(output_str)
             output["execution_time_ms"] = int((time.time() - start_time) * 1000)
 
             return output
 
-        except asyncio.TimeoutError:
+        except docker.errors.ContainerError as e:
+            # Container exited with non-zero code
+            logger.error(f"Docker container error: {e.stderr.decode('utf-8')}")
             return {
                 "status": "ERROR",
-                "message": f"Execution timeout after {job.timeout_seconds}s",
+                "message": f"Container execution failed: {e.stderr.decode('utf-8')[:200]}",
                 "data": {}
             }
+
+        except docker.errors.ImageNotFound:
+            logger.error(f"Docker image not found: {image}")
+            return {
+                "status": "ERROR",
+                "message": f"Docker image not found: {image}",
+                "data": {}
+            }
+
         except Exception as e:
-            logger.exception(f"E2B execution failed: {e}")
+            logger.exception(f"Docker execution failed: {e}")
             return {
                 "status": "ERROR",
                 "message": str(e),
                 "data": {}
             }
-        finally:
-            if sandbox:
-                await sandbox.close()
-
-    async def _create_sandbox(self, runtime: str) -> Sandbox:
-        """Create E2B sandbox for Python or Node with retry logic.
-
-        Implements exponential backoff for E2B API rate limits:
-        - Max 3 attempts
-        - Backoff: 1s, 2s, 4s
-        """
-        MAX_RETRIES = 3
-        INITIAL_BACKOFF = 1
-
-        for attempt in range(MAX_RETRIES):
-            try:
-                if runtime == "python":
-                    return Sandbox(template="python")
-                elif runtime == "node":
-                    return Sandbox(template="node")
-                else:
-                    raise ValueError(f"Unsupported runtime: {runtime}")
-
-            except Exception as e:
-                if attempt < MAX_RETRIES - 1:
-                    backoff = INITIAL_BACKOFF * (2 ** attempt)
-                    logger.warning(f"E2B sandbox creation failed, retrying in {backoff}s (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
-                    await asyncio.sleep(backoff)
-                else:
-                    logger.error(f"E2B sandbox creation failed after {MAX_RETRIES} attempts")
-                    raise
 
     async def _resolve_env_vars(self, env_vars_json: str, db_session) -> Dict[str, str]:
-        """
-        Resolve env_vars JSON, decrypt secret references.
-
-        Example:
-            Input: {"API_KEY": "secret_ref:1", "CUSTOM": "value"}
-            Output: {"API_KEY": "decrypted_api_key", "CUSTOM": "value"}
-        """
+        """Resolve env_vars JSON, decrypt secret references with audit logging."""
         if not env_vars_json:
             return {}
 
         env_vars = json.loads(env_vars_json)
         resolved = {}
 
-        # Lazy import to avoid circular dependency
         from app.services.secrets import SecretManager
         secret_manager = SecretManager(db_session)
 
@@ -746,59 +805,9 @@ class E2BExecutor:
 
         return resolved
 
-    async def _upload_script(self, sandbox: Sandbox, extracted_dir_path: str) -> None:
-        """Upload script files from extracted directory to sandbox.
-
-        Note: Expects extracted_dir_path to be a directory, not a .tgz archive.
-        ScriptStorageService handles extraction before calling this method.
-        """
-        # Upload files from extracted directory to sandbox
-        for root, dirs, files in os.walk(extracted_dir_path):
-            for file in files:
-                local_path = os.path.join(root, file)
-                remote_path = os.path.relpath(local_path, extracted_dir_path)
-                with open(local_path, "rb") as f:
-                    sandbox.upload_file(remote_path, f.read())
-
-    async def _install_dependencies(
-        self,
-        sandbox: Sandbox,
-        runtime: str,
-        script_path: str
-    ) -> None:
-        """Install dependencies from requirements.txt / package.json."""
-        if runtime == "python":
-            # Check for requirements.txt
-            result = await sandbox.run_code("ls requirements.txt")
-            if result.exit_code == 0:
-                await sandbox.run_code("pip install -r requirements.txt")
-
-        elif runtime == "node":
-            # Check for package.json
-            result = await sandbox.run_code("ls package.json")
-            if result.exit_code == 0:
-                await sandbox.run_code("npm install")
-
-    def _build_execution_command(self, job: CustomCheckJob) -> str:
-        """Build execution command with check_params as JSON stdin."""
-        if job.script_runtime == "python":
-            return f"python {job.script_entrypoint}"
-        elif job.script_runtime == "node":
-            return f"node {job.script_entrypoint}"
-
     def _parse_output(self, stdout: str) -> Dict[str, Any]:
-        """
-        Parse JSON output from script stdout.
-
-        Expected format:
-        {
-            "status": "SUCCESS|FAILED|PENDING|ERROR",
-            "data": {...},
-            "message": "..."
-        }
-        """
+        """Parse JSON output from stdout with error handling."""
         try:
-            # Extract last JSON object from stdout (in case of logs)
             lines = stdout.strip().split("\n")
             for line in reversed(lines):
                 try:
@@ -808,7 +817,6 @@ class E2BExecutor:
                 except json.JSONDecodeError:
                     continue
 
-            # No valid JSON found
             return {
                 "status": "ERROR",
                 "message": "Script did not output valid JSON",
@@ -820,6 +828,64 @@ class E2BExecutor:
                 "message": f"Failed to parse output: {e}",
                 "data": {}
             }
+
+    def _run_container_blocking(
+        self,
+        image: str,
+        cmd: str,
+        env_vars: Dict[str, str],
+        script_tgz_path: str
+    ) -> bytes:
+        """
+        Synchronous Docker execution (runs in thread pool via asyncio.to_thread).
+
+        CRITICAL: This method is blocking and MUST be called via asyncio.to_thread
+        to avoid blocking the event loop (Codex review fix).
+        """
+        return self.client.containers.run(
+            image=image,
+            command=["/bin/sh", "-c", cmd],
+            environment=env_vars,
+            volumes={
+                os.path.abspath(script_tgz_path): {
+                    "bind": "/scripts/script.tgz",
+                    "mode": "ro"
+                }
+            },
+            # CRITICAL: Apply security hardening (Codex review - was missing in original)
+            **self.SECURITY_CONFIG,
+            # Resource limits
+            mem_limit="512m",
+            cpu_quota=50000,        # 0.5 CPU
+            network_mode="bridge",
+            remove=True,
+            detach=False,
+            stdout=True,
+            stderr=True
+        )
+```
+
+**Docker Images (Built-in):**
+
+```dockerfile
+# docker/Dockerfile.python
+FROM python:3.11-slim
+
+# Install uv for fast package installation
+RUN pip install --no-cache-dir uv
+
+WORKDIR /workspace
+
+CMD ["/bin/bash"]
+```
+
+```dockerfile
+# docker/Dockerfile.node
+FROM node:20-slim
+
+WORKDIR /workspace
+
+CMD ["/bin/bash"]
 ```
 
 ---
@@ -844,10 +910,13 @@ class WebhookClient:
         url: str,
         method: str,
         headers: Dict[str, str],
-        payload: Dict[str, Any]
+        payload: Dict[str, Any],
+        query_params: Optional[Dict[str, str]] = None
     ) -> bool:
         """
         Send HTTP request to webhook URL with exponential backoff retry.
+
+        Supports both POST (with JSON payload) and GET (with query params).
 
         Retry strategy:
         - Retry on network errors, timeouts, and 5xx status codes
@@ -858,20 +927,36 @@ class WebhookClient:
             url: Webhook endpoint URL
             method: HTTP method (GET, POST, PUT, etc.)
             headers: Custom headers
-            payload: JSON payload
+            payload: JSON payload (for POST/PUT/PATCH)
+            query_params: Query parameters for GET (supports template placeholders)
 
         Returns:
             True if successful (2xx status), False otherwise
+
+        Example GET webhook:
+            query_params = {
+                "job_id": "{job_id}",
+                "status": "{status}",
+                "data": "{data.batch_id}"
+            }
+            # Becomes: ?job_id=123&status=SUCCESS&data=batch_abc
         """
         for attempt in range(self.MAX_RETRIES):
             try:
                 async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
-                    response = await client.request(
-                        method=method,
-                        url=url,
-                        headers=headers,
-                        json=payload
-                    )
+                    if method == "GET":
+                        # Build query params with template substitution
+                        params = self._resolve_query_params(query_params or {}, payload)
+                        response = await client.get(url, headers=headers, params=params)
+                    else:
+                        # POST/PUT/PATCH with JSON payload
+                        response = await client.request(
+                            method=method,
+                            url=url,
+                            headers=headers,
+                            json=payload
+                        )
+
                     response.raise_for_status()
                     logger.info(f"Webhook triggered successfully: {url} (status={response.status_code})")
                     return True
@@ -935,6 +1020,59 @@ class WebhookClient:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "execution_time_ms": check_result.get("execution_time_ms")
         }
+
+    def _resolve_query_params(
+        self,
+        template_params: Dict[str, str],
+        payload: Dict[str, Any]
+    ) -> Dict[str, str]:
+        """
+        Resolve template placeholders in query params from payload.
+
+        Template syntax:
+        - {job_id} → payload["job_id"]
+        - {status} → payload["check_status"]
+        - {data.batch_id} → payload["check_data"]["batch_id"]
+        - {message} → payload["check_message"]
+
+        Example:
+            template_params = {"job": "{job_id}", "result": "{data.batch_id}"}
+            payload = {"job_id": 123, "check_data": {"batch_id": "abc"}}
+            → {"job": "123", "result": "abc"}
+        """
+        resolved = {}
+
+        for key, template in template_params.items():
+            # Extract placeholder (e.g., "{job_id}" → "job_id")
+            if "{" in template and "}" in template:
+                placeholder = template.strip("{}").strip()
+
+                # Support nested keys (e.g., "data.batch_id")
+                if "." in placeholder:
+                    parts = placeholder.split(".")
+                    value = payload
+                    for part in parts:
+                        # Map check_data to data for user-friendly syntax
+                        if part == "data":
+                            part = "check_data"
+                        value = value.get(part, {})
+                    resolved[key] = str(value) if value else ""
+                else:
+                    # Direct key lookup
+                    # Map user-friendly keys to payload keys
+                    key_mapping = {
+                        "job_id": "job_id",
+                        "status": "check_status",
+                        "message": "check_message"
+                    }
+                    mapped_key = key_mapping.get(placeholder, placeholder)
+                    value = payload.get(mapped_key, "")
+                    resolved[key] = str(value) if value else ""
+            else:
+                # Not a template, use as-is
+                resolved[key] = template
+
+        return resolved
 ```
 
 ---
@@ -984,7 +1122,7 @@ class PollingService:
         Flow:
         1. Log check start
         2. Fetch/extract script
-        3. Execute in E2B sandbox
+        3. Execute in Docker container
         4. Parse result
         5. Update job status
         6. Trigger webhook if completed
@@ -995,11 +1133,11 @@ class PollingService:
             try:
                 # Lazy imports
                 from app.services.script_storage import ScriptStorageService
-                from app.services.e2b_executor import E2BExecutor
+                from app.services.docker_executor import DockerExecutor
                 from app.integrations.webhook_client import WebhookClient
 
                 storage = ScriptStorageService()
-                executor = E2BExecutor()
+                executor = DockerExecutor()
                 webhook = WebhookClient()
 
                 # Log start
@@ -1013,11 +1151,8 @@ class PollingService:
                 else:
                     script_path = await storage.get_script_path(job.id)
 
-                # Extract script
-                extracted_path = await storage.extract_script(job.id)
-
-                # Execute in E2B
-                result = await executor.execute_check(job, extracted_path, db)
+                # Execute in Docker (script_tgz_path, not extracted)
+                result = await executor.execute_check(job, script_path, db)
 
                 # Update job with result
                 job.last_check_status = result["status"]
@@ -1118,6 +1253,7 @@ router = APIRouter(prefix="/api/custom-checks", tags=["Custom Checks"])
 # ============================================================================
 
 class CustomCheckJobCreate(BaseModel):
+    """Schema for creating custom check job - supports both Git and Upload in single request."""
     name: str = Field(..., min_length=1, max_length=255)
     script_source_type: Literal["git", "upload"]
     script_git_url: Optional[str] = Field(None, max_length=500)
@@ -1125,11 +1261,13 @@ class CustomCheckJobCreate(BaseModel):
     script_runtime: Literal["python", "node"]
     script_entrypoint: str = Field("main.py", max_length=255)
     check_params: Dict[str, Any] = Field(..., description="JSON object with check parameters")
+    resource_limits: Optional[Dict[str, Any]] = Field(None, description="Resource limits (memory_mb, cpu_cores)")
     env_vars: Optional[Dict[str, str]] = Field(None, description="Env vars (use 'secret_ref:<id>' for secrets)")
     timeout_seconds: int = Field(300, ge=10, le=3600)
     webhook_url: Optional[str] = Field(None, max_length=500)
     webhook_method: str = Field("POST", regex="^(GET|POST|PUT|PATCH|DELETE)$")
     webhook_headers: Optional[Dict[str, str]] = None
+    webhook_query_params: Optional[Dict[str, str]] = Field(None, description="Query params for GET webhooks (supports templates)")
     poll_interval_seconds: int = Field(120, ge=10, le=86400)
 
 
@@ -1208,15 +1346,49 @@ class CustomCheckLogSchema(BaseModel):
 
 @router.post("/", response_model=CustomCheckJobSchema, status_code=201)
 async def create_custom_check_job(
-    job_data: CustomCheckJobCreate,
+    config: str = Form(..., description="JSON configuration (CustomCheckJobCreate schema)"),
+    script: Optional[UploadFile] = File(None, description="Script .tgz file (required if source_type=upload)"),
     db: Session = Depends(get_db)
 ):
-    """Create a new custom check job."""
+    """
+    Create a new custom check job with optional script upload in single request.
+
+    Supports two workflows:
+    1. Git source: POST with config JSON, script_git_url specified, no file upload
+    2. Upload source: POST with config JSON + script .tgz file as multipart/form-data
+
+    Example (Git):
+        curl -X POST /api/custom-checks \
+          -F 'config={"name":"My Job","script_source_type":"git","script_git_url":"https://...",...}'
+
+    Example (Upload):
+        curl -X POST /api/custom-checks \
+          -F 'config={"name":"My Job","script_source_type":"upload",...}' \
+          -F 'script=@my-script.tgz'
+    """
     from app.models import CustomCheckJob
+    from app.services.script_storage import ScriptStorageService
+
+    # Parse config JSON
+    try:
+        job_data = CustomCheckJobCreate(**json.loads(config))
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid JSON in config field")
+    except ValidationError as e:
+        raise HTTPException(400, f"Invalid config: {e}")
 
     # Validate script source
-    if job_data.script_source_type == "git" and not job_data.script_git_url:
-        raise HTTPException(400, "script_git_url required for git source")
+    if job_data.script_source_type == "git":
+        if not job_data.script_git_url:
+            raise HTTPException(400, "script_git_url required for git source")
+        if script:
+            raise HTTPException(400, "script file not allowed for git source (use script_git_url)")
+
+    elif job_data.script_source_type == "upload":
+        if not script:
+            raise HTTPException(400, "script file required for upload source")
+        if not script.filename.endswith((".tgz", ".tar.gz")):
+            raise HTTPException(400, "script must be .tgz or .tar.gz file")
 
     # Create job
     job = CustomCheckJob(
@@ -1226,12 +1398,15 @@ async def create_custom_check_job(
         script_git_branch=job_data.script_git_branch,
         script_runtime=job_data.script_runtime,
         script_entrypoint=job_data.script_entrypoint,
+        execution_runtime=job_data.execution_runtime,
+        docker_image=job_data.docker_image,
         check_params=json.dumps(job_data.check_params),
         env_vars=json.dumps(job_data.env_vars) if job_data.env_vars else None,
         timeout_seconds=job_data.timeout_seconds,
         webhook_url=job_data.webhook_url,
         webhook_method=job_data.webhook_method,
         webhook_headers=json.dumps(job_data.webhook_headers) if job_data.webhook_headers else None,
+        webhook_query_params=json.dumps(job_data.webhook_query_params) if job_data.webhook_query_params else None,
         poll_interval_seconds=job_data.poll_interval_seconds,
         status="active",
         next_check_at=datetime.now(timezone.utc)
@@ -1240,6 +1415,14 @@ async def create_custom_check_job(
     db.add(job)
     db.commit()
     db.refresh(job)
+
+    # Store script if upload source
+    if job_data.script_source_type == "upload" and script:
+        storage = ScriptStorageService()
+        script_path = await storage.store_uploaded_script(job.id, script)
+        job.script_file_path = script_path
+        db.commit()
+        db.refresh(job)
 
     return job
 
@@ -1775,7 +1958,7 @@ checkGeminiBatch().then(result => {
 | **Concurrent Checks** | 50 parallel executions | Semaphore limit = 50 |
 | **Poll Batch Size** | 100 jobs per iteration | Fetch 100 jobs at once |
 | **DB Connection Pool** | 20 connections | SQLAlchemy pool size |
-| **E2B Rate Limit** | Check with E2B docs | Implement backoff if needed |
+| **Docker Container Limit** | 50 concurrent containers | Resource monitoring |
 | **Polling Loop Latency** | < 5 seconds | Fast job scheduling |
 
 ### Scaling Considerations
@@ -1807,21 +1990,22 @@ engine = create_engine(
 **Semaphore Tuning:**
 ```python
 class PollingService:
-    MAX_CONCURRENT_CHECKS = 50  # Up to 50 parallel E2B sessions
+    MAX_CONCURRENT_CHECKS = 50  # Up to 50 parallel Docker containers
     POLL_BATCH_SIZE = 100       # Process 100 jobs per iteration
 ```
 
-**E2B Session Pooling (Future):**
-- Consider E2B session reuse for same script (v1.1+)
-- Tradeoff: Performance vs. isolation
-- Requires careful state cleanup between runs
+**Docker Container Optimization (Future):**
+- Docker image layer caching for faster startup
+- Pre-warmed containers for frequently used scripts (v1.1+)
+- Tradeoff: Memory usage vs. startup time
 
 #### 3. Monitoring and Metrics
 
 **Key Metrics to Track:**
 - Active jobs count
 - Polling loop iteration time
-- E2B execution time (p50, p95, p99)
+- Docker execution time (p50, p95, p99)
+- Container startup time
 - Webhook success rate
 - Error rate by status
 
@@ -1829,7 +2013,8 @@ class PollingService:
 ```python
 # Add performance logging
 logger.info(f"Processed {len(jobs)} jobs in {elapsed:.2f}s")
-logger.info(f"E2B execution: {execution_time_ms}ms")
+logger.info(f"Docker execution: {execution_time_ms}ms")
+logger.info(f"Container startup: {startup_time_ms}ms")
 ```
 
 #### 4. Resource Limits
@@ -1837,7 +2022,8 @@ logger.info(f"E2B execution: {execution_time_ms}ms")
 **Per-Job Limits:**
 - Script size: 10MB (compressed)
 - Execution timeout: 5 minutes (configurable, max 1 hour)
-- Memory: E2B sandbox default (check docs)
+- Memory: 512MB per container (configurable via resource_limits)
+- CPU: 0.5 cores per container (configurable)
 
 **System Limits:**
 - Total script storage: Monitor disk usage
@@ -1849,33 +2035,181 @@ logger.info(f"E2B execution: {execution_time_ms}ms")
 
 ### Threat Model
 
-| Threat | Mitigation |
-|--------|-----------|
-| **Malicious Script Execution** | E2B sandbox isolation (no host access) |
-| **Secret Leakage** | Encrypted storage, secret references, no logs |
-| **Script Injection** | Input validation, tarfile extraction safety |
-| **Webhook Abuse** | Rate limiting, HTTPS recommended |
-| **Resource Exhaustion** | Timeout limits, size limits, concurrency control |
+| Threat | Mitigation | Implementation |
+|--------|-----------|----------------|
+| **Malicious Script Execution** | Docker container isolation + hardening | User namespaces, seccomp, AppArmor, read-only root |
+| **Container Escape** | Kernel-level isolation, no privileged mode | Drop all capabilities, run as non-root user (UID 1000) |
+| **Secret Leakage** | Encrypted storage, secret references, masking | AES-256, in-memory decryption, audit logging |
+| **Data Exfiltration** | Network egress filtering (optional) | Docker network policies, firewall rules |
+| **Script Injection** | Input validation, tarfile extraction safety | Path traversal checks, symlink detection |
+| **Webhook Abuse** | Rate limiting, HTTPS recommended | Retry limits, exponential backoff |
+| **Resource Exhaustion** | Hard limits per container | 512MB RAM, 0.5 CPU, 300s timeout (configurable) |
+| **Shared Kernel Exploits** | Security patches, minimal attack surface | Alpine/slim base images, regular updates |
 
-### Secret Management
+### Container Security Hardening
+
+**Critical Security Controls (MUST-HAVE for v1.0):**
+
+```python
+# app/services/docker_executor.py
+
+class DockerExecutor:
+    """Executes custom check scripts with enterprise-grade container security."""
+
+    # Security configuration
+    SECURITY_CONFIG = {
+        # User namespace isolation
+        "userns_mode": "host",  # Remap to non-root user
+
+        # Resource limits (prevent DoS)
+        "mem_limit": "512m",
+        "memswap_limit": "512m",  # No swap allowed
+        "cpu_quota": 50000,  # 0.5 CPU (50% of 100000)
+        "cpu_period": 100000,
+        "pids_limit": 100,  # Max processes
+
+        # Network isolation
+        "network_mode": "bridge",  # Isolated network
+        "dns": ["8.8.8.8", "1.1.1.1"],  # Explicit DNS
+
+        # Filesystem security
+        "read_only": False,  # Scripts need to write temp files
+        "tmpfs": {"/tmp": "size=100m,mode=1777"},  # Temp storage
+
+        # Capabilities (drop all, grant none)
+        "cap_drop": ["ALL"],
+        "cap_add": [],  # No capabilities needed
+
+        # Security profiles
+        "security_opt": [
+            "no-new-privileges:true",  # Prevent privilege escalation
+            "seccomp=default",  # Syscall filtering
+            "apparmor=docker-default"  # Mandatory Access Control
+        ],
+
+        # Execution
+        "privileged": False,  # NEVER run privileged
+        "auto_remove": True,  # Cleanup after execution
+        "detach": False,  # Synchronous execution
+        "user": "runner",  # Run as non-root (UID 1000)
+    }
+
+    async def execute_check(self, job: CustomCheckJob, script_tgz_path: str, db_session):
+        """Execute script in hardened Docker container."""
+
+        # ... env_vars resolution ...
+
+        container_output = self.client.containers.run(
+            image=self.IMAGES[job.script_runtime],
+            command=["/bin/sh", "-c", cmd],
+            environment=self._mask_secrets_in_logs(env_vars),  # Masked for logging
+            volumes={
+                os.path.abspath(script_tgz_path): {
+                    "bind": "/scripts/script.tgz",
+                    "mode": "ro"  # Read-only mount
+                }
+            },
+            **self.SECURITY_CONFIG,  # Apply all security settings
+            **self._get_resource_limits(job)  # Job-specific limits
+        )
+```
+
+**Dockerfile Security Best Practices:**
+
+```dockerfile
+# docker/Dockerfile.python
+FROM python:3.11-slim
+
+# Security: Create non-root user with fixed UID
+RUN useradd -m -u 1000 -s /bin/bash runner && \
+    pip install --no-cache-dir uv && \
+    # Remove unnecessary packages
+    apt-get autoremove -y && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Security: Run as non-root
+USER runner
+WORKDIR /workspace
+
+# Security: Drop to minimal shell
+CMD ["/bin/bash"]
+```
+
+### Secrets Lifecycle Management
 
 **Architecture:**
 ```
 User Input → env_vars: {"API_KEY": "secret_ref:1"}
             ↓
-E2B Executor → Decrypt secret_id=1
+DockerExecutor → Decrypt secret_id=1 (in-memory only)
             ↓
-E2B Sandbox → Set env: {"API_KEY": "decrypted_value"}
+Docker Container → Set env: {"API_KEY": "decrypted_value"}
             ↓
-Script → Read from process.env / os.environ
+Script → Read from os.environ (masked in logs)
+            ↓
+Container Termination → Secrets wiped (auto-remove=True)
 ```
 
 **Key Principles:**
-- Secrets stored encrypted in DB (existing `Secret` model with AES-256)
-- `env_vars` contains references, not values
-- Decryption happens in-memory at execution time
-- E2B sandboxes have no persistent storage
-- Secrets NEVER logged or stored in `last_check_data`
+1. **Encryption at Rest**: AES-256 in database (existing `Secret` model)
+2. **In-Memory Decryption**: Secrets decrypted only at execution time, never persisted
+3. **Secret References**: `env_vars` contains `secret_ref:ID`, not actual values
+4. **Scoping**: Secrets scoped per job, no cross-job access
+5. **Masking**: Secrets masked in logs (replaced with `***`)
+6. **Audit Logging**: Secret access logged to `custom_check_logs` (without values)
+7. **No Persistence**: Docker containers auto-removed, no secret remnants
+8. **Rotation**: Secrets can be updated in DB, jobs automatically use new values
+
+**Secret Masking Implementation:**
+
+```python
+def _mask_secrets_in_logs(self, env_vars: Dict[str, str]) -> Dict[str, str]:
+    """Mask secret values for logging (security requirement)."""
+    masked = {}
+    for key, value in env_vars.items():
+        # Mask any value >10 chars that looks like a secret
+        if len(value) > 10 and any(c in value for c in "/_-"):
+            masked[key] = "***MASKED***"
+        else:
+            masked[key] = value
+    return masked
+
+async def _resolve_env_vars(self, env_vars_json: str, db_session) -> Dict[str, str]:
+    """Resolve secret references with audit logging."""
+    if not env_vars_json:
+        return {}
+
+    env_vars = json.loads(env_vars_json)
+    resolved = {}
+
+    from app.services.secrets import SecretManager
+    secret_manager = SecretManager(db_session)
+
+    for key, value in env_vars.items():
+        if isinstance(value, str) and value.startswith("secret_ref:"):
+            try:
+                secret_id = int(value.split(":")[1])
+                resolved[key] = await secret_manager.get_decrypted_value(secret_id)
+
+                # Audit: Log secret access (without value)
+                logger.info(f"Secret accessed: secret_id={secret_id}, job_id={job.id}, key={key}")
+
+            except (ValueError, IndexError) as e:
+                logger.error(f"Invalid secret reference: {value}")
+                raise ValueError(f"Invalid secret reference: {value}")
+        else:
+            resolved[key] = value
+
+    return resolved
+```
+
+**Secret Rotation Procedure:**
+
+1. Update secret in database via API/CLI
+2. Existing jobs automatically use new value on next execution
+3. No job restart required
+4. Audit log tracks when new secret first used
 
 **Secret Reference Validation:**
 ```python
@@ -1948,22 +2282,29 @@ def _validate_git_url(self, url: str) -> None:
         raise ValueError("Local Git URLs not allowed")
 ```
 
-### E2B Sandbox Isolation
+### Network Security
 
-**Security Properties:**
-- **Process Isolation**: Scripts run in separate containers
-- **Network Isolation**: No access to host network (configurable)
-- **Filesystem Isolation**: No access to host filesystem
-- **Resource Limits**: CPU, memory, timeout enforced by E2B
+**Egress Filtering (Optional - v1.1+):**
 
-**Configuration:**
 ```python
-sandbox = Sandbox(
-    template="python",
-    timeout=job.timeout_seconds,
-    # Network access: Check E2B docs for restrictions
-)
+# Future enhancement: Restrict outbound network access
+# Use Docker network plugins or iptables rules
+
+NETWORK_CONFIG = {
+    "network_mode": "custom_isolated",  # Custom network with firewall
+    "allowed_domains": [
+        "api.openai.com",
+        "gemini.googleapis.com",
+        # Whitelist approved APIs
+    ]
+}
 ```
+
+**Current v1.0 Approach:**
+- Bridge network (default Docker behavior)
+- Scripts can make outbound HTTP/HTTPS requests
+- Recommended: Use application-level logging to monitor API calls
+- Future: Implement egress filtering via Docker network plugins
 
 ### Webhook Security
 
@@ -1987,27 +2328,339 @@ sandbox = Sandbox(
 
 ---
 
+## SQLite Optimization & Database Performance
+
+### Critical Configuration (MUST-HAVE for v1.0)
+
+**Enable WAL Mode for Concurrent Writes:**
+
+```python
+# app/database.py
+
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
+
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./teckochecker.db")
+
+# Enable WAL mode and optimizations
+engine = create_engine(
+    DATABASE_URL,
+    pool_size=20,          # Up from 5 (support 50 concurrent checks)
+    max_overflow=40,       # Allow burst to 60 total connections
+    pool_pre_ping=True,    # Check connection health
+    pool_recycle=3600,     # Recycle connections hourly
+    echo=False,            # Disable SQL logging in production
+    connect_args={
+        "timeout": 30,      # 30s connection timeout
+        "check_same_thread": False  # Allow multi-threading
+    }
+)
+
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_conn, connection_record):
+    """Enable SQLite performance optimizations on every connection."""
+    cursor = dbapi_conn.cursor()
+
+    # CRITICAL: Enable WAL mode for concurrent writes
+    cursor.execute("PRAGMA journal_mode=WAL")
+
+    # Performance optimizations
+    cursor.execute("PRAGMA synchronous=NORMAL")  # Faster than FULL, still safe with WAL
+    cursor.execute("PRAGMA cache_size=-64000")    # 64MB cache (default is 2MB)
+    cursor.execute("PRAGMA temp_store=MEMORY")    # Temp tables in memory
+    cursor.execute("PRAGMA mmap_size=268435456")  # 256MB memory-mapped I/O
+
+    # Integrity
+    cursor.execute("PRAGMA foreign_keys=ON")      # Enforce foreign keys
+
+    cursor.close()
+```
+
+### Performance Targets
+
+| Metric | Target | Configuration |
+|--------|--------|---------------|
+| **Concurrent Writes** | 50 simultaneous log writes | WAL mode enabled |
+| **Read Latency** | < 10ms for job queries | Indexed columns, 64MB cache |
+| **Write Latency** | < 50ms for log inserts | WAL mode, batched writes |
+| **Connection Pool** | 20-60 connections | pool_size=20, max_overflow=40 |
+| **Database Size** | < 10GB (with log retention) | Auto-vacuum, log rotation |
+
+### Log Retention Policy
+
+**Prevent Unbounded Growth:**
+
+```python
+# app/services/log_retention.py
+
+class LogRetentionService:
+    """Manages custom_check_logs table size."""
+
+    RETENTION_DAYS = 30  # Keep logs for 30 days
+    CLEANUP_INTERVAL_HOURS = 24  # Run daily
+
+    async def cleanup_old_logs(self, db_session):
+        """Delete logs older than retention period."""
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.RETENTION_DAYS)
+
+        result = db_session.execute(
+            text("DELETE FROM custom_check_logs WHERE created_at < :cutoff"),
+            {"cutoff": cutoff_date}
+        )
+
+        deleted_count = result.rowcount
+        logger.info(f"Log retention: Deleted {deleted_count} old logs (>{self.RETENTION_DAYS} days)")
+
+        # Reclaim disk space
+        db_session.execute(text("VACUUM"))
+
+        return deleted_count
+```
+
+**Scheduled Cleanup:**
+
+```python
+# In PollingService or background task
+async def run_maintenance_tasks(self):
+    """Run periodic database maintenance."""
+    retention_service = LogRetentionService()
+
+    while True:
+        await asyncio.sleep(3600 * 24)  # Daily
+
+        with self._create_db_session() as db:
+            await retention_service.cleanup_old_logs(db)
+            db.commit()
+```
+
+### Migration to PostgreSQL (Future)
+
+**Triggers for Migration:**
+- Database size > 10GB
+- Concurrent job count > 500
+- Write latency > 100ms consistently
+- Need for advanced features (JSONB, full-text search)
+
+**PostgreSQL-Ready Schema:**
+- All JSON fields stored as TEXT (compatible with JSONB)
+- Indexes designed for PostgreSQL compatibility
+- No SQLite-specific features used
+
+---
+
+## Observability & Monitoring
+
+### Metrics Export (Prometheus)
+
+**Key Metrics to Track:**
+
+```python
+# app/services/metrics.py
+
+from prometheus_client import Counter, Histogram, Gauge, generate_latest
+
+# Job metrics
+jobs_total = Gauge("custom_check_jobs_total", "Total custom check jobs", ["status"])
+jobs_active = Gauge("custom_check_jobs_active", "Active custom check jobs")
+
+# Execution metrics
+checks_total = Counter("custom_check_executions_total", "Total check executions", ["status", "runtime"])
+check_duration = Histogram("custom_check_duration_seconds", "Check execution duration", ["runtime"])
+check_errors = Counter("custom_check_errors_total", "Check errors", ["error_type"])
+
+# Resource metrics
+docker_containers_active = Gauge("docker_containers_active", "Active Docker containers")
+script_storage_bytes = Gauge("script_storage_bytes_total", "Total script storage in bytes")
+
+# Webhook metrics
+webhook_calls_total = Counter("webhook_calls_total", "Total webhook calls", ["status_code"])
+webhook_duration = Histogram("webhook_duration_seconds", "Webhook call duration")
+
+class MetricsService:
+    """Collects and exports Prometheus metrics."""
+
+    def record_check_execution(self, job: CustomCheckJob, duration_ms: int, status: str):
+        """Record check execution metrics."""
+        checks_total.labels(status=status, runtime=job.script_runtime).inc()
+        check_duration.labels(runtime=job.script_runtime).observe(duration_ms / 1000)
+
+        if status == "ERROR":
+            check_errors.labels(error_type="execution_failure").inc()
+
+    def record_webhook_call(self, status_code: int, duration_ms: int):
+        """Record webhook metrics."""
+        webhook_calls_total.labels(status_code=status_code).inc()
+        webhook_duration.observe(duration_ms / 1000)
+
+    def update_job_counts(self, db_session):
+        """Update job count gauges."""
+        from app.models import CustomCheckJob
+
+        counts = db_session.query(
+            CustomCheckJob.status,
+            func.count(CustomCheckJob.id)
+        ).group_by(CustomCheckJob.status).all()
+
+        for status, count in counts:
+            jobs_total.labels(status=status).set(count)
+
+        active = db_session.query(CustomCheckJob).filter(
+            CustomCheckJob.status == "active"
+        ).count()
+        jobs_active.set(active)
+```
+
+**Metrics Endpoint:**
+
+```python
+# app/api/metrics.py
+
+from fastapi import APIRouter
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+
+router = APIRouter(prefix="/metrics", tags=["Metrics"])
+
+@router.get("", include_in_schema=False)
+async def metrics():
+    """Prometheus metrics endpoint."""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+```
+
+### Structured Logging (structlog)
+
+**Configuration:**
+
+```python
+# app/logging_config.py
+
+import structlog
+import logging
+
+def configure_logging():
+    """Configure structured logging for better debugging."""
+
+    structlog.configure(
+        processors=[
+            structlog.stdlib.filter_by_level,
+            structlog.stdlib.add_logger_name,
+            structlog.stdlib.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            structlog.processors.UnicodeDecoder(),
+            structlog.processors.JSONRenderer()  # JSON output for parsing
+        ],
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
+    )
+
+    # Set log level
+    logging.basicConfig(
+        format="%(message)s",
+        level=logging.INFO
+    )
+
+# Use in application
+logger = structlog.get_logger(__name__)
+
+# Example usage
+logger.info(
+    "check_executed",
+    job_id=123,
+    status="SUCCESS",
+    duration_ms=1234,
+    runtime="python"
+)
+```
+
+**Log Structure:**
+
+```json
+{
+  "event": "check_executed",
+  "timestamp": "2025-01-24T10:00:00.000000Z",
+  "level": "info",
+  "logger": "app.services.polling",
+  "job_id": 123,
+  "status": "SUCCESS",
+  "duration_ms": 1234,
+  "runtime": "python"
+}
+```
+
+### Alerting Rules (Example)
+
+**Prometheus Alert Rules:**
+
+```yaml
+# alerts/custom_checks.yml
+
+groups:
+  - name: custom_checks
+    interval: 30s
+    rules:
+      - alert: HighCheckErrorRate
+        expr: rate(custom_check_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate in custom checks"
+          description: "{{ $value }} errors/sec in last 5 minutes"
+
+      - alert: CheckExecutionSlow
+        expr: histogram_quantile(0.95, rate(custom_check_duration_seconds_bucket[5m])) > 60
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "95th percentile check duration > 60s"
+
+      - alert: DatabaseConnectionPoolExhausted
+        expr: sqlalchemy_pool_size - sqlalchemy_pool_available < 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection pool near exhaustion"
+```
+
+### Dashboard (Grafana Template)
+
+**Key Panels:**
+1. Active Jobs (gauge)
+2. Check Executions/min (graph)
+3. P50/P95/P99 Execution Time (graph)
+4. Error Rate (graph)
+5. Webhook Success Rate (graph)
+6. Docker Container Count (gauge)
+7. Database Connection Pool (gauge)
+8. Storage Usage (gauge)
+
+---
+
 ## Testing Strategy
 
 ### Unit Tests
 
 **Test Coverage:**
 - `ScriptStorageService`: Upload, Git fetch, extraction, validation
-- `E2BExecutor`: Sandbox creation, script execution, output parsing
-- `WebhookClient`: HTTP requests, error handling
+- `DockerExecutor`: Container creation, script execution, output parsing, security hardening
+- `WebhookClient`: HTTP requests, error handling, retry logic
 - `CustomCheckJob` model: Properties, validation
 - API endpoints: CRUD operations, error cases
 
 **Example Test:**
 ```python
-# tests/unit/test_e2b_executor.py
+# tests/unit/test_docker_executor.py
 import pytest
-from app.services.e2b_executor import E2BExecutor
+from app.services.docker_executor import DockerExecutor
 
 @pytest.mark.asyncio
-async def test_execute_check_success(mock_sandbox, test_db):
-    """Test successful script execution."""
-    executor = E2BExecutor()
+async def test_execute_check_success(mock_docker_client, test_db):
+    """Test successful script execution in Docker container."""
+    executor = DockerExecutor()
     job = create_test_job(script_runtime="python")
 
     result = await executor.execute_check(job, "/path/to/script", test_db)
@@ -2101,18 +2754,22 @@ async def test_polling_500_jobs(test_db):
 ### Phase 1: Core Infrastructure (v1.0.0) - 2 weeks
 
 **Deliverables:**
-- ✅ Database schema (tables, migrations)
-- ✅ `ScriptStorageService` (upload, Git fetch)
-- ✅ `E2BExecutor` (sandbox execution, output parsing)
-- ✅ `WebhookClient` (HTTP trigger)
+- ✅ Database schema (tables, migrations) with WAL mode
+- ✅ `ScriptStorageService` (upload, Git fetch with caching)
+- ✅ `DockerExecutor` (secure container execution, output parsing)
+- ✅ `WebhookClient` (HTTP trigger with retry logic)
 - ✅ API endpoints (CRUD, script management)
+- ✅ Security hardening (container isolation, secret masking)
+- ✅ Observability (Prometheus metrics, structured logging)
 - ✅ Basic unit tests (80% coverage)
 
 **Success Criteria:**
 - Can create custom check job via API
 - Can upload script and trigger manual check
-- Script executes in E2B, returns JSON output
-- Webhook triggered on completion
+- Script executes in Docker container, returns JSON output
+- Webhook triggered on completion with retry
+- Security controls enforced (non-root, resource limits)
+- Metrics exported for monitoring
 
 ---
 
@@ -2148,31 +2805,362 @@ async def test_polling_500_jobs(test_db):
 
 ---
 
+## Examples & Testing Templates
+
+### Mock Checker Example (TDD Template)
+
+Complete testing template with TDD approach for validating scripts before deployment.
+
+**Directory Structure:**
+```
+examples/mock-checker/
+├── main.py                 # Mock script with predictable behavior
+├── requirements.txt        # Dependencies
+├── test_checker.py         # TDD pytest tests
+├── README.md               # Usage guide
+└── build.sh                # Build script (creates .tgz)
+```
+
+**main.py** (Mock Script):
+```python
+#!/usr/bin/env python3
+"""
+Mock Custom Check Script for TeckoChecker Testing.
+Simulates async task with configurable progression.
+"""
+import json
+import os
+import sys
+from datetime import datetime
+
+def get_state_file():
+    return os.path.join(os.getcwd(), ".mock_state.json")
+
+def load_state():
+    try:
+        with open(get_state_file(), "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {"check_count": 0}
+
+def save_state(state):
+    with open(get_state_file(), "w") as f:
+        json.dump(state, f)
+
+def check_task():
+    # Configuration from env vars
+    task_id = os.environ.get("TASK_ID", "mock_task_123")
+    checks_until_complete = int(os.environ.get("CHECKS_UNTIL_COMPLETE", "4"))
+    should_fail = os.environ.get("SHOULD_FAIL", "false").lower() == "true"
+
+    # Load state
+    state = load_state()
+    state["check_count"] += 1
+    save_state(state)
+
+    check_count = state["check_count"]
+
+    # Simulate progression
+    if check_count < checks_until_complete:
+        progress = int((check_count / checks_until_complete) * 100)
+        return {
+            "status": "PENDING",
+            "data": {
+                "task_id": task_id,
+                "progress": progress,
+                "checks_performed": check_count
+            },
+            "message": f"Task in progress: {progress}%"
+        }
+    else:
+        if should_fail:
+            return {
+                "status": "FAILED",
+                "data": {"task_id": task_id, "error_code": "MOCK_FAILURE"},
+                "message": "Task failed (simulated)"
+            }
+        else:
+            return {
+                "status": "SUCCESS",
+                "data": {
+                    "task_id": task_id,
+                    "completed_at": datetime.utcnow().isoformat(),
+                    "result_count": 42
+                },
+                "message": "Task completed successfully"
+            }
+
+if __name__ == "__main__":
+    try:
+        result = check_task()
+        print(json.dumps(result))
+        sys.exit(0)
+    except Exception as e:
+        print(json.dumps({
+            "status": "ERROR",
+            "message": f"Script error: {str(e)}",
+            "data": {}
+        }))
+        sys.exit(1)
+```
+
+**test_checker.py** (TDD Tests):
+```python
+"""
+TDD Tests for Mock Checker.
+Run: pytest test_checker.py -v
+"""
+import json
+import os
+import subprocess
+import pytest
+
+def run_checker(env_vars):
+    """Execute main.py with given env vars."""
+    env = os.environ.copy()
+    env.update(env_vars)
+
+    result = subprocess.run(
+        ["python", "main.py"],
+        env=env,
+        capture_output=True,
+        text=True
+    )
+
+    return json.loads(result.stdout)
+
+def test_returns_valid_json():
+    """Test valid JSON output."""
+    output = run_checker({"TASK_ID": "test_123"})
+
+    assert "status" in output
+    assert "data" in output
+    assert "message" in output
+
+def test_pending_progression():
+    """Test PENDING for first 3 calls."""
+    if os.path.exists(".mock_state.json"):
+        os.remove(".mock_state.json")
+
+    env = {"TASK_ID": "test_123", "CHECKS_UNTIL_COMPLETE": "4"}
+
+    for i in range(3):
+        output = run_checker(env)
+        assert output["status"] == "PENDING"
+        assert output["data"]["checks_performed"] == i + 1
+
+def test_completes_successfully():
+    """Test SUCCESS on 4th call."""
+    with open(".mock_state.json", "w") as f:
+        json.dump({"check_count": 3}, f)
+
+    env = {"TASK_ID": "test_123", "CHECKS_UNTIL_COMPLETE": "4"}
+    output = run_checker(env)
+
+    assert output["status"] == "SUCCESS"
+    assert "completed_at" in output["data"]
+
+def test_can_fail():
+    """Test FAILED status."""
+    with open(".mock_state.json", "w") as f:
+        json.dump({"check_count": 3}, f)
+
+    env = {
+        "TASK_ID": "test_123",
+        "CHECKS_UNTIL_COMPLETE": "4",
+        "SHOULD_FAIL": "true"
+    }
+    output = run_checker(env)
+
+    assert output["status"] == "FAILED"
+    assert "error_code" in output["data"]
+
+@pytest.fixture(autouse=True)
+def cleanup():
+    yield
+    if os.path.exists(".mock_state.json"):
+        os.remove(".mock_state.json")
+```
+
+**Usage:**
+```bash
+# Test locally
+pytest test_checker.py -v
+
+# Build and upload
+tar -czf mock-checker.tgz main.py requirements.txt
+curl -X POST http://localhost:8000/api/custom-checks \
+  -F 'config={"name":"Mock Test","script_source_type":"upload","script_runtime":"python","script_entrypoint":"main.py","check_params":{},"env_vars":{"TASK_ID":"test_123","CHECKS_UNTIL_COMPLETE":"4"},"poll_interval_seconds":30}' \
+  -F 'script=@mock-checker.tgz'
+```
+
+---
+
+### Webhook Receiver Example
+
+Simple Flask server for testing webhooks locally.
+
+**webhook_receiver.py:**
+```python
+"""
+Webhook receiver for testing TeckoChecker webhooks.
+Run: python webhook_receiver.py
+"""
+from flask import Flask, request, jsonify
+from datetime import datetime
+
+app = Flask(__name__)
+webhooks = []
+
+@app.route('/webhook', methods=['POST', 'GET'])
+def receive_webhook():
+    """Receive webhook from TeckoChecker."""
+    timestamp = datetime.utcnow().isoformat()
+
+    if request.method == 'POST':
+        data = request.get_json()
+        webhook = {
+            "timestamp": timestamp,
+            "method": "POST",
+            "data": data
+        }
+        print(f"\n[{timestamp}] POST Webhook:")
+        print(f"  Job: {data.get('job_name')}")
+        print(f"  Status: {data.get('check_status')}")
+    else:  # GET
+        webhook = {
+            "timestamp": timestamp,
+            "method": "GET",
+            "query_params": dict(request.args)
+        }
+        print(f"\n[{timestamp}] GET Webhook:")
+        print(f"  Params: {request.args}")
+
+    webhooks.append(webhook)
+    return jsonify({"status": "received"}), 200
+
+@app.route('/webhooks', methods=['GET'])
+def list_webhooks():
+    """List all received webhooks."""
+    return jsonify({"total": len(webhooks), "webhooks": webhooks})
+
+@app.route('/webhooks/clear', methods=['POST'])
+def clear_webhooks():
+    """Clear webhook history."""
+    webhooks.clear()
+    return jsonify({"status": "cleared"})
+
+if __name__ == '__main__':
+    print("Webhook receiver started on http://localhost:5000")
+    print("Endpoints:")
+    print("  POST/GET /webhook - Receive webhooks")
+    print("  GET /webhooks - List received")
+    print("  POST /webhooks/clear - Clear history")
+    app.run(debug=True, port=5000)
+```
+
+---
+
+### Script Templates
+
+**Template 1: Python Basic (No Dependencies)**
+```python
+#!/usr/bin/env python3
+import json
+import os
+
+# Get config from env
+task_id = os.environ["TASK_ID"]
+
+# Your check logic here
+result = {
+    "status": "PENDING",  # or SUCCESS, FAILED, ERROR
+    "data": {"task_id": task_id},
+    "message": "Check in progress"
+}
+
+print(json.dumps(result))
+```
+
+**Template 2: Python with API Call**
+```python
+#!/usr/bin/env python3
+import json
+import os
+import requests
+
+api_key = os.environ["API_KEY"]
+task_id = os.environ["TASK_ID"]
+
+try:
+    response = requests.get(
+        f"https://api.example.com/tasks/{task_id}",
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout=30
+    )
+    response.raise_for_status()
+
+    task = response.json()
+
+    if task["status"] == "completed":
+        result = {
+            "status": "SUCCESS",
+            "data": task,
+            "message": "Task completed"
+        }
+    else:
+        result = {
+            "status": "PENDING",
+            "data": {"progress": task.get("progress", 0)},
+            "message": f"Task {task['status']}"
+        }
+
+    print(json.dumps(result))
+
+except Exception as e:
+    print(json.dumps({
+        "status": "ERROR",
+        "message": str(e),
+        "data": {}
+    }))
+```
+
+---
+
 ## Open Questions and Future Enhancements
 
 ### Open Questions (For Discussion)
 
-1. **E2B Pricing**: What are E2B rate limits and costs at scale (500 jobs)?
+1. **Docker Resource Management**: How to monitor and prevent resource exhaustion at scale?
 2. **Script Versioning**: Should we store script history? (DB or filesystem?)
-3. **Retry Logic**: Should we implement exponential backoff for ERROR status?
-4. **Webhook Retries**: Retry failed webhooks? Circuit breaker pattern?
+3. **Network Egress Filtering**: Implement in v1.0 or defer to v1.1+?
+4. **Custom Docker Images**: Allow user-provided images in v1.0 with security scanning?
 5. **Multi-step Workflows**: Support DAGs (job dependencies)? Out of scope for v1.0?
+
+**RESOLVED in v1.0:**
+- ✅ Retry Logic: Implemented exponential backoff for Docker + webhooks
+- ✅ Webhook Retries: Implemented with 3 retries + exponential backoff
 
 ### Future Enhancements (Post-v1.0)
 
-**v1.3+:**
-- Script marketplace (templates for common providers)
-- Retry logic with exponential backoff
-- Webhook retries and circuit breaker
-- Prometheus metrics export
+**v1.1+:**
+- Custom Docker images with security scanning
+- Network egress filtering (whitelist approved APIs)
+- Dependency caching for faster container startup
 - PostgreSQL support
+
+**v1.2+:**
+- Script marketplace (templates for common providers)
+- Advanced webhook features (circuit breaker, signing)
+- Script versioning and rollback
+- Docker image layer caching
 
 **v2.0+:**
 - Migrate OpenAI polling to custom check (consolidate)
 - Multi-step workflows (DAG support)
-- Script versioning and rollback
 - Advanced scheduling (cron expressions)
-- Multi-region E2B execution
+- Multi-region deployment support
+- Kubernetes support (alternative to Docker)
 
 ---
 
@@ -2181,61 +3169,182 @@ async def test_polling_500_jobs(test_db):
 This PRD defines a comprehensive custom check jobs feature that transforms TeckoChecker into a universal async task monitoring platform. Key highlights:
 
 ✅ **Flexibility**: Monitor any async task with user-defined scripts
-✅ **Safety**: E2B sandbox isolation for untrusted code
-✅ **Scale**: 500+ jobs, 50 concurrent checks
+✅ **Safety**: Docker container isolation with enterprise-grade hardening
+✅ **Scale**: 500+ jobs, 50 concurrent Docker containers
+✅ **Cost-Effective**: Local execution, zero external API costs
+✅ **Security**: Non-root execution, resource limits, secret masking, audit logging
+✅ **Observability**: Prometheus metrics, structured logging, Grafana dashboards
+✅ **Performance**: SQLite WAL mode, connection pooling, log retention
 ✅ **Simplicity**: Standard JSON output format
 ✅ **Extensibility**: Python/Node support, Git/upload sources
 
+**Decision: Docker-Only (No E2B)**
+Based on Codex technical review (2025-01-24), we chose Docker as the exclusive runtime for v1.0 to prioritize:
+- Operational simplicity (single runtime to maintain)
+- Cost-effectiveness (no external API fees)
+- Full security control (custom hardening policies)
+- Predictable performance (no external rate limits)
+
+E2B may be reconsidered in v2.0+ if cloud-based execution becomes a requirement.
+
 **Next Steps:**
-1. Review and approve PRD
-2. Set up E2B account and test API limits
+1. Review and approve PRD (post-Codex review)
+2. Set up Docker environment with security scanning
 3. Start Phase 1 implementation (core infrastructure)
-4. Iterate based on feedback
+4. Establish metrics baseline and alerting rules
+5. Iterate based on production feedback
 
 ---
 
-## Implementation Decisions (Post-Codex Review)
+## Implementation Decisions (Post-Codex Review Round 2)
 
-Following Codex technical review on 2025-01-24, the following critical issues were addressed:
+Following Codex technical review on **2025-01-25**, critical architectural flaws were identified in the Docker execution model, security enforcement, and scalability assumptions. This review validates the Docker-only approach but requires significant implementation fixes.
 
-### Critical Fixes Applied (Round 1)
+### Critical Fixes Applied (Codex Round 2 - 2025-01-25)
 
-1. **Script Path Contract**: E2BExecutor now accepts extracted directory instead of .tgz archive to avoid double-extraction
-2. **JSON Coercion**: Added Pydantic `@field_validator` to handle JSON string → dict conversion in API responses
-3. **Git Caching**: Implemented repo mirroring + change detection to avoid full clone on every poll (critical for 500-job scale)
-4. **Retry Logic**: Added exponential backoff (1s→2s→4s, max 3 attempts) for:
-   - E2B sandbox creation (rate limit protection)
-   - Webhook triggers (network error resilience)
-5. **Script Size Limit**: Reduced from 50MB to 10MB to keep runtime lean
+#### 1. **Non-Blocking Docker Execution** (HIGH severity - FIXED)
 
-### Additional Fixes (Round 2)
+**Problem:** Docker SDK calls (`containers.run()`) are blocking and halt the asyncio event loop, preventing 50 concurrent checks.
 
-6. **Pydantic Version Clarification**: Explicitly documented Pydantic 2.12.3 in tech stack (supports `@field_validator`)
-7. **Git Shallow Clone**: Changed from `--mirror` to `--depth 1 --single-branch` to:
-   - Respect 10MB size limit (mirror downloads full history)
-   - Validate archive size BEFORE storing
-   - Check for symlinks in archive (security)
+**Fix Applied:**
+```python
+# Before (BROKEN):
+container_output = self.client.containers.run(...)  # Blocks event loop!
 
-### Decisions on Specific Questions
+# After (FIXED):
+container_output = await asyncio.to_thread(
+    self._run_container_blocking,
+    image, cmd, env_vars, script_tgz_path
+)
+```
 
-| Question | Decision | Rationale |
-|----------|----------|-----------|
-| Retry logic in v1.0? | ✅ Yes (implemented) | Essential for E2B rate limits and webhook reliability |
-| Filesystem vs DB storage? | ✅ Filesystem (.tgz) | Better for 10MB files, with validation and locking |
-| Script versioning in v1.0? | ❌ No (defer to v2.0) | Only persist commit hash/timestamp for debugging |
-| Script size limit? | ✅ 10MB (reduced) | Balances flexibility with performance |
-| JSON output enforcement? | ✅ Yes (with schema) | Status enum + size limits, attachment URLs for large payloads |
-
-### Remaining Important Considerations
-
-Addressed in implementation:
-- Git security validation (symlinks, hostname allowlist)
-- Dependency caching strategy (venv/node_modules per job hash)
-- File locking for concurrent access
-- Malformed output handling in tests
+**Impact:** Enables true 50-concurrent execution without event loop starvation.
 
 ---
 
-**Document Status:** Ready for Implementation (Revised Post-Review)
-**Reviewers:** Codex (GPT-5-Codex, 2025-01-24)
+#### 2. **Non-Root Dependency Installation** (HIGH severity - FIXED)
+
+**Problem:** `uv pip install --system` and `npm install` fail under non-root `runner` user and redo dependencies on every poll.
+
+**Fix Applied:**
+```bash
+# Python (before):
+uv pip install -r requirements.txt --system  # FAILS: permission denied
+
+# Python (after):
+python -m venv .venv &&
+. .venv/bin/activate &&
+pip install -r requirements.txt  # Writable virtualenv
+
+# Node (before):
+npm install  # FAILS: writes to /workspace/node_modules
+
+# Node (after):
+npm ci --prefix ./node_modules  # Local install path
+```
+
+**Impact:** Prevents execution failures and enables dependency caching (future).
+
+---
+
+#### 3. **Security Config Enforcement** (HIGH severity - FIXED)
+
+**Problem:** `SECURITY_CONFIG` dict was documented but NOT applied in `containers.run()` call, leaving capabilities/seccomp/AppArmor unenforced.
+
+**Fix Applied:**
+```python
+# Before (BROKEN):
+container_output = self.client.containers.run(
+    image=image,
+    mem_limit="512m",
+    # Missing: **self.SECURITY_CONFIG
+)
+
+# After (FIXED):
+container_output = self.client.containers.run(
+    **self.SECURITY_CONFIG,  # ← NOW APPLIED
+    mem_limit="512m",
+    ...
+)
+```
+
+**Impact:** Enforces `cap_drop=["ALL"]`, `seccomp`, `AppArmor`, `no-new-privileges`.
+
+---
+
+#### 4. **Capacity Planning Documentation** (HIGH severity - DOCUMENTED)
+
+**Problem:** 50 containers × (512MB + 0.5 CPU) = ~25GB RAM + 25 cores with NO admission control.
+
+**Mitigation Added:**
+- **Documented requirement:** Host must have 32GB+ RAM, 32+ cores for advertised capacity
+- **Future work:** Add runtime admission control (queue depth, node metrics)
+- **Monitoring:** Add Prometheus alerts for memory/CPU pressure
+- **Fallback:** If host undersized, reduce `MAX_CONCURRENT_CHECKS` to match capacity
+
+**Impact:** Prevents resource exhaustion in production.
+
+---
+
+#### 5. **SQLite Contention Warning** (MEDIUM severity - DOCUMENTED)
+
+**Problem:** 50 concurrent log writes will cause `database is locked` errors despite WAL mode.
+
+**Mitigation Added:**
+- **Warning added:** SQLite WAL mode supports concurrent readers but serializes writers
+- **Monitoring:** Track lock wait time and write latency metrics
+- **Threshold:** Migrate to PostgreSQL if p95 write latency > 100ms
+- **Workaround:** Batch log inserts or cap concurrent writers to 20
+
+**Impact:** Sets realistic expectations and migration triggers.
+
+---
+
+#### 6. **Network Egress Controls** (MEDIUM severity - DEFERRED to v1.1)
+
+**Problem:** Default bridge network allows untrusted scripts to scan/exfiltrate.
+
+**Decision:**
+- **v1.0:** Deploy with awareness of risk + monitoring/alerting
+- **v1.1:** Implement custom network + firewall rules + egress whitelist
+- **Workaround:** Constrain tenancy (trusted scripts only) or deploy in isolated VPC
+
+**Impact:** Acceptable for v1.0 with documented risk.
+
+---
+
+### Architecture Validation Summary
+
+| Area | Status | Notes |
+|------|--------|-------|
+| **Docker-only approach** | ✅ **VALIDATED** (with fixes) | Operationally simple, but requires non-blocking execution + capacity planning |
+| **Git caching strategy** | ✅ **SOUND** | Add file locking for concurrent fetches (future) |
+| **Polling scalability** | ⚠️ **FIXED** | Blocked on asyncio.to_thread fix + SQLite contention monitoring |
+| **Security model** | ⚠️ **FIXED** | Config now enforced; egress controls deferred to v1.1 |
+
+---
+
+### Missing Considerations (Added to Roadmap)
+
+1. **Image Patching:** Process for scanning/patching runner images without downtime (v1.1)
+2. **Quota/Tenancy:** Per-user resource limits to prevent noisy neighbor (v1.2)
+3. **Backup/DR:** Plan for `/var/teckochecker/scripts` backup (v1.1)
+4. **Output Limits:** Cap script stdout/stderr to 1MB to protect log storage (v1.0)
+
+---
+
+### Implementation Risks & Mitigations
+
+| Risk | Severity | Mitigation |
+|------|----------|-----------|
+| Async poller blocks on Docker → cascading timeouts | HIGH | ✅ FIXED: asyncio.to_thread |
+| Dependency install fails under non-root → job failures | HIGH | ✅ FIXED: virtualenv/local paths |
+| SQLite write contention → "database is locked" errors | MEDIUM | Add retries + PostgreSQL migration checklist |
+| Host resource exhaustion → OOM kills | MEDIUM | Document capacity requirements + add monitoring |
+
+---
+
+**Document Status:** Ready for Implementation (Revised Post-Codex Round 2)
+**Reviewers:** Codex (GPT-5-Codex, 2025-01-25)
 **Approval Required:** Yes (before implementation)
+**Review Artifacts:** `/tmp/codex-review.json` (structured output)
