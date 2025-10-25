@@ -63,6 +63,140 @@ Future versions may consolidate OpenAI polling as a built-in custom check, but v
 
 ---
 
+## High-Level Architecture Diagrams
+
+### User Journey - Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant API as TeckoChecker API
+    participant DB as Database
+    participant Poller as Polling Service
+    participant Storage as Script Storage
+    participant E2B as E2B Sandbox
+    participant Webhook as Webhook Target
+
+    Note over User,Webhook: Phase 1: Job Creation & Script Upload
+    User->>API: POST /api/custom-checks<br/>{name, script_source, runtime, check_params}
+    API->>DB: Create CustomCheckJob
+    DB-->>API: job_id: 123
+    API-->>User: 201 Created {id: 123}
+
+    User->>API: POST /api/custom-checks/123/script/upload<br/>(upload script.tgz)
+    API->>Storage: Validate & Store Script
+    Storage->>Storage: Check size (<=10MB)<br/>Validate tar format<br/>Check for symlinks
+    Storage-->>API: Script stored
+    API-->>User: 200 OK
+
+    Note over User,Webhook: Phase 2: Automatic Polling Loop
+    loop Every poll_interval_seconds (e.g., 120s)
+        Poller->>DB: Query active jobs<br/>WHERE next_check_at <= NOW()
+        DB-->>Poller: [job_123, ...]
+
+        Poller->>Storage: Extract script for job_123
+        Storage-->>Poller: /tmp/.../extracted/
+
+        Poller->>E2B: Create Sandbox (python/node)
+        E2B-->>Poller: sandbox_instance
+
+        Poller->>E2B: Set env vars (decrypt secrets)
+        Poller->>E2B: Upload script files
+        Poller->>E2B: Install dependencies
+        Poller->>E2B: Execute script (timeout: 300s)
+
+        E2B->>E2B: Run user script
+        E2B-->>Poller: stdout: {"status": "PENDING", "data": {...}}
+
+        Poller->>DB: Update job.last_check_status = "PENDING"
+        Poller->>DB: Log execution (CustomCheckLog)
+        Poller->>Storage: Cleanup extracted files
+    end
+
+    Note over User,Webhook: Phase 3: Completion & Webhook Trigger
+    Poller->>E2B: Execute script (Nth poll)
+    E2B-->>Poller: stdout: {"status": "SUCCESS", "data": {...}}
+
+    Poller->>DB: Update job.status = "completed"
+    Poller->>Webhook: POST webhook_url<br/>{job_id, check_status, check_data}
+    Webhook-->>Poller: 200 OK
+    Poller->>DB: Log webhook trigger
+
+    Note over User,Webhook: Phase 4: User Views Results
+    User->>API: GET /api/custom-checks/123/logs
+    API->>DB: Query CustomCheckLog
+    DB-->>API: [log1, log2, ...]
+    API-->>User: 200 OK {logs: [...], total: 10}
+```
+
+### System Architecture - Component Diagram
+
+```mermaid
+graph TB
+    subgraph "Interface Layer"
+        CLI[CLI Commands<br/>teckochecker.py custom-check]
+        API[FastAPI Endpoints<br/>/api/custom-checks/*]
+        WebUI[Web UI<br/>List/Trigger/Logs]
+    end
+
+    subgraph "Service Layer"
+        PollingService[Polling Service<br/>Unified Scheduler<br/>50 concurrent checks]
+        ScriptStorage[Script Storage Service<br/>Git fetch + Upload<br/>Validation + Caching]
+        E2BExecutor[E2B Executor<br/>Sandbox creation<br/>Script execution]
+        SecretMgr[Secret Manager<br/>AES-256 encryption<br/>Secret references]
+    end
+
+    subgraph "Integration Layer"
+        WebhookClient[Webhook Client<br/>HTTP trigger<br/>Retry logic]
+        E2BSDK[E2B SDK<br/>Sandbox API]
+        GitPython[GitPython<br/>Repo cloning]
+    end
+
+    subgraph "Data Layer"
+        DB[(SQLite Database)]
+        FileStorage[("/var/teckochecker/scripts/<br/>{job_id}/script.tgz")]
+    end
+
+    subgraph "External Services"
+        E2BSandbox[E2B Cloud<br/>Isolated Containers]
+        WebhookTarget[Webhook Target<br/>User's endpoint]
+        GitRepo[Git Repository<br/>User's script source]
+    end
+
+    CLI --> PollingService
+    API --> PollingService
+    API --> ScriptStorage
+    API --> SecretMgr
+    WebUI --> API
+
+    PollingService --> ScriptStorage
+    PollingService --> E2BExecutor
+    PollingService --> WebhookClient
+    PollingService --> DB
+
+    ScriptStorage --> FileStorage
+    ScriptStorage --> GitPython
+    ScriptStorage --> DB
+
+    E2BExecutor --> E2BSDK
+    E2BExecutor --> SecretMgr
+    E2BExecutor --> DB
+
+    SecretMgr --> DB
+    WebhookClient --> WebhookTarget
+    E2BSDK --> E2BSandbox
+    GitPython --> GitRepo
+
+    style PollingService fill:#e1f5ff
+    style E2BExecutor fill:#e1f5ff
+    style ScriptStorage fill:#e1f5ff
+    style E2BSandbox fill:#fff3cd
+    style WebhookTarget fill:#fff3cd
+    style DB fill:#d4edda
+```
+
+---
+
 ## Use Cases and Requirements
 
 ### Use Case 1: Monitor Gemini API Batch Jobs
