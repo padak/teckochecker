@@ -146,7 +146,7 @@ Future versions may consolidate OpenAI polling as a built-in custom check, but v
 | NFR-4 | **Isolation**: Zero cross-contamination between script executions | 100% isolation |
 | NFR-5 | **Security**: Encrypted secret storage, no credential leakage | AES-256 encryption |
 | NFR-6 | **Reliability**: 99% polling loop uptime | Graceful error handling |
-| NFR-7 | **Storage**: Limit script size to 50MB (compressed) | Max 50MB .tgz |
+| NFR-7 | **Storage**: Limit script size to 10MB (compressed) | Max 10MB .tgz |
 
 ---
 
@@ -174,6 +174,7 @@ Future versions may consolidate OpenAI polling as a built-in custom check, but v
 ✅ **Polling Integration:**
 - Extend existing `PollingService` to process both job types
 - Unified scheduler for `PollingJob` and `CustomCheckJob`
+- Retry logic with exponential backoff for E2B sandbox creation and webhook triggers
 
 ✅ **Web UI (Basic):**
 - List custom check jobs
@@ -187,8 +188,7 @@ Future versions may consolidate OpenAI polling as a built-in custom check, but v
 ❌ **Not in v1.0:**
 - Script versioning/rollback
 - Multi-step workflows (DAGs)
-- Retry logic with exponential backoff (basic retry only)
-- Advanced webhook features (retries, circuit breaker)
+- Advanced webhook features (circuit breaker, custom retry strategies)
 - Script marketplace/templates
 - Metrics dashboard (Prometheus/Grafana)
 - PostgreSQL support (SQLite only)
@@ -209,6 +209,7 @@ Future versions may consolidate OpenAI polling as a built-in custom check, but v
 
 - Python 3.11+
 - FastAPI 0.104+
+- **Pydantic 2.12.3** (supports `@field_validator`)
 - SQLAlchemy 2.0+
 - SQLite 3.38+
 - asyncio for concurrency
@@ -404,7 +405,7 @@ class CustomCheckLog(Base):
 ```
 /var/teckochecker/scripts/
 ├── {job_id}/
-│   ├── script.tgz          # Uploaded or git-fetched archive (max 50MB)
+│   ├── script.tgz          # Uploaded or git-fetched archive (max 10MB)
 │   ├── metadata.json       # Script metadata (git commit, upload timestamp)
 │   └── extracted/          # Temporary extraction (cleaned after each poll)
 │       ├── main.py
@@ -415,13 +416,13 @@ class CustomCheckLog(Base):
 **Key Methods:**
 ```python
 class ScriptStorageService:
-    MAX_SCRIPT_SIZE_MB = 50
+    MAX_SCRIPT_SIZE_MB = 10
     STORAGE_ROOT = "/var/teckochecker/scripts"
 
     async def store_uploaded_script(self, job_id: int, file: UploadFile) -> str:
         """
         Validate and store uploaded .tgz file.
-        - Check size <= 50MB
+        - Check size <= 10MB
         - Validate tar format
         - Store to {STORAGE_ROOT}/{job_id}/script.tgz
         - Update metadata.json
@@ -429,11 +430,30 @@ class ScriptStorageService:
 
     async def fetch_git_script(self, job_id: int, git_url: str, branch: str) -> str:
         """
-        Clone Git repo and create .tgz archive.
-        - Clone to temp directory
-        - Create .tgz archive (exclude .git/)
+        Fetch Git repo with caching and change detection (shallow clone strategy).
+
+        Strategy:
+        1. Check if repo cache exists for this job
+        2. If exists: git fetch + check if commit changed
+        3. If changed (or first time): create .tgz archive + validate size
+        4. If unchanged: skip, return existing .tgz path
+
+        This avoids full clone on every poll (critical for scale to 500 jobs).
+
+        Flow:
+        - Maintain shallow clone at {STORAGE_ROOT}/{job_id}/repo/
+        - On first run: git clone --depth 1 --single-branch --branch {branch}
+        - On subsequent runs: git fetch --depth 1 origin {branch}
+        - Compare HEAD commit with metadata.json
+        - Only rebuild .tgz if commit changed
+        - Validate archive size <= 10MB BEFORE storing
         - Store to {STORAGE_ROOT}/{job_id}/script.tgz
         - Update metadata.json with commit hash
+
+        Security:
+        - Validate git URL (HTTPS only, no localhost)
+        - Check for symlinks in archive (reject if found)
+        - Enforce 10MB size limit on .tgz output
         """
 
     async def extract_script(self, job_id: int) -> str:
@@ -538,13 +558,32 @@ class E2BExecutor:
                 await sandbox.close()
 
     async def _create_sandbox(self, runtime: str) -> Sandbox:
-        """Create E2B sandbox for Python or Node."""
-        if runtime == "python":
-            return Sandbox(template="python")
-        elif runtime == "node":
-            return Sandbox(template="node")
-        else:
-            raise ValueError(f"Unsupported runtime: {runtime}")
+        """Create E2B sandbox for Python or Node with retry logic.
+
+        Implements exponential backoff for E2B API rate limits:
+        - Max 3 attempts
+        - Backoff: 1s, 2s, 4s
+        """
+        MAX_RETRIES = 3
+        INITIAL_BACKOFF = 1
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                if runtime == "python":
+                    return Sandbox(template="python")
+                elif runtime == "node":
+                    return Sandbox(template="node")
+                else:
+                    raise ValueError(f"Unsupported runtime: {runtime}")
+
+            except Exception as e:
+                if attempt < MAX_RETRIES - 1:
+                    backoff = INITIAL_BACKOFF * (2 ** attempt)
+                    logger.warning(f"E2B sandbox creation failed, retrying in {backoff}s (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
+                    await asyncio.sleep(backoff)
+                else:
+                    logger.error(f"E2B sandbox creation failed after {MAX_RETRIES} attempts")
+                    raise
 
     async def _resolve_env_vars(self, env_vars_json: str, db_session) -> Dict[str, str]:
         """
@@ -573,18 +612,17 @@ class E2BExecutor:
 
         return resolved
 
-    async def _upload_script(self, sandbox: Sandbox, script_path: str) -> None:
-        """Upload and extract script files to sandbox."""
-        # Extract locally first
-        extract_path = script_path.replace(".tgz", "_extracted")
-        with tarfile.open(script_path, "r:gz") as tar:
-            tar.extractall(extract_path)
+    async def _upload_script(self, sandbox: Sandbox, extracted_dir_path: str) -> None:
+        """Upload script files from extracted directory to sandbox.
 
-        # Upload files to sandbox
-        for root, dirs, files in os.walk(extract_path):
+        Note: Expects extracted_dir_path to be a directory, not a .tgz archive.
+        ScriptStorageService handles extraction before calling this method.
+        """
+        # Upload files from extracted directory to sandbox
+        for root, dirs, files in os.walk(extracted_dir_path):
             for file in files:
                 local_path = os.path.join(root, file)
-                remote_path = os.path.relpath(local_path, extract_path)
+                remote_path = os.path.relpath(local_path, extracted_dir_path)
                 with open(local_path, "rb") as f:
                     sandbox.upload_file(remote_path, f.read())
 
@@ -664,6 +702,8 @@ class WebhookClient:
     """Triggers generic HTTP webhooks with custom check results."""
 
     DEFAULT_TIMEOUT = 30  # seconds
+    MAX_RETRIES = 3  # Max retry attempts
+    INITIAL_BACKOFF = 1  # Initial backoff in seconds
 
     async def trigger_webhook(
         self,
@@ -673,7 +713,12 @@ class WebhookClient:
         payload: Dict[str, Any]
     ) -> bool:
         """
-        Send HTTP request to webhook URL.
+        Send HTTP request to webhook URL with exponential backoff retry.
+
+        Retry strategy:
+        - Retry on network errors, timeouts, and 5xx status codes
+        - Exponential backoff: 1s, 2s, 4s
+        - No retry on 4xx errors (client errors)
 
         Args:
             url: Webhook endpoint URL
@@ -684,24 +729,49 @@ class WebhookClient:
         Returns:
             True if successful (2xx status), False otherwise
         """
-        try:
-            async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
-                response = await client.request(
-                    method=method,
-                    url=url,
-                    headers=headers,
-                    json=payload
-                )
-                response.raise_for_status()
-                logger.info(f"Webhook triggered successfully: {url} (status={response.status_code})")
-                return True
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
+                    response = await client.request(
+                        method=method,
+                        url=url,
+                        headers=headers,
+                        json=payload
+                    )
+                    response.raise_for_status()
+                    logger.info(f"Webhook triggered successfully: {url} (status={response.status_code})")
+                    return True
 
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Webhook failed with status {e.response.status_code}: {url}")
-            return False
-        except Exception as e:
-            logger.exception(f"Webhook failed: {url} - {e}")
-            return False
+            except httpx.HTTPStatusError as e:
+                # Don't retry on 4xx errors (client errors)
+                if 400 <= e.response.status_code < 500:
+                    logger.error(f"Webhook failed with client error {e.response.status_code}: {url}")
+                    return False
+
+                # Retry on 5xx errors
+                if attempt < self.MAX_RETRIES - 1:
+                    backoff = self.INITIAL_BACKOFF * (2 ** attempt)
+                    logger.warning(f"Webhook failed with status {e.response.status_code}, retrying in {backoff}s (attempt {attempt + 1}/{self.MAX_RETRIES})")
+                    await asyncio.sleep(backoff)
+                else:
+                    logger.error(f"Webhook failed after {self.MAX_RETRIES} attempts: {url}")
+                    return False
+
+            except (httpx.NetworkError, httpx.TimeoutException) as e:
+                # Retry on network errors and timeouts
+                if attempt < self.MAX_RETRIES - 1:
+                    backoff = self.INITIAL_BACKOFF * (2 ** attempt)
+                    logger.warning(f"Webhook network/timeout error, retrying in {backoff}s (attempt {attempt + 1}/{self.MAX_RETRIES}): {e}")
+                    await asyncio.sleep(backoff)
+                else:
+                    logger.error(f"Webhook failed after {self.MAX_RETRIES} attempts: {url} - {e}")
+                    return False
+
+            except Exception as e:
+                logger.exception(f"Webhook failed with unexpected error: {url} - {e}")
+                return False
+
+        return False
 
     def build_payload(
         self,
@@ -963,6 +1033,15 @@ class CustomCheckJobSchema(BaseModel):
     created_at: datetime
     completed_at: Optional[datetime]
 
+    # JSON coercion validators (DB stores as JSON strings)
+    @field_validator('check_params', 'env_vars', 'webhook_headers', 'last_check_data', mode='before')
+    @classmethod
+    def parse_json_fields(cls, v):
+        """Parse JSON string to dict if needed."""
+        if isinstance(v, str):
+            return json.loads(v) if v else None
+        return v
+
     class Config:
         from_attributes = True
 
@@ -975,6 +1054,15 @@ class CustomCheckLogSchema(BaseModel):
     script_output: Optional[Dict[str, Any]]
     execution_time_ms: Optional[int]
     created_at: datetime
+
+    # JSON coercion validator (DB stores as JSON string)
+    @field_validator('script_output', mode='before')
+    @classmethod
+    def parse_json_field(cls, v):
+        """Parse JSON string to dict if needed."""
+        if isinstance(v, str):
+            return json.loads(v) if v else None
+        return v
 
     class Config:
         from_attributes = True
@@ -1613,7 +1701,7 @@ logger.info(f"E2B execution: {execution_time_ms}ms")
 #### 4. Resource Limits
 
 **Per-Job Limits:**
-- Script size: 50MB (compressed)
+- Script size: 10MB (compressed)
 - Execution timeout: 5 minutes (configurable, max 1 hour)
 - Memory: E2B sandbox default (check docs)
 
@@ -1972,6 +2060,48 @@ This PRD defines a comprehensive custom check jobs feature that transforms Tecko
 
 ---
 
-**Document Status:** Draft for Review
-**Reviewers:** 
+## Implementation Decisions (Post-Codex Review)
+
+Following Codex technical review on 2025-01-24, the following critical issues were addressed:
+
+### Critical Fixes Applied (Round 1)
+
+1. **Script Path Contract**: E2BExecutor now accepts extracted directory instead of .tgz archive to avoid double-extraction
+2. **JSON Coercion**: Added Pydantic `@field_validator` to handle JSON string → dict conversion in API responses
+3. **Git Caching**: Implemented repo mirroring + change detection to avoid full clone on every poll (critical for 500-job scale)
+4. **Retry Logic**: Added exponential backoff (1s→2s→4s, max 3 attempts) for:
+   - E2B sandbox creation (rate limit protection)
+   - Webhook triggers (network error resilience)
+5. **Script Size Limit**: Reduced from 50MB to 10MB to keep runtime lean
+
+### Additional Fixes (Round 2)
+
+6. **Pydantic Version Clarification**: Explicitly documented Pydantic 2.12.3 in tech stack (supports `@field_validator`)
+7. **Git Shallow Clone**: Changed from `--mirror` to `--depth 1 --single-branch` to:
+   - Respect 10MB size limit (mirror downloads full history)
+   - Validate archive size BEFORE storing
+   - Check for symlinks in archive (security)
+
+### Decisions on Specific Questions
+
+| Question | Decision | Rationale |
+|----------|----------|-----------|
+| Retry logic in v1.0? | ✅ Yes (implemented) | Essential for E2B rate limits and webhook reliability |
+| Filesystem vs DB storage? | ✅ Filesystem (.tgz) | Better for 10MB files, with validation and locking |
+| Script versioning in v1.0? | ❌ No (defer to v2.0) | Only persist commit hash/timestamp for debugging |
+| Script size limit? | ✅ 10MB (reduced) | Balances flexibility with performance |
+| JSON output enforcement? | ✅ Yes (with schema) | Status enum + size limits, attachment URLs for large payloads |
+
+### Remaining Important Considerations
+
+Addressed in implementation:
+- Git security validation (symlinks, hostname allowlist)
+- Dependency caching strategy (venv/node_modules per job hash)
+- File locking for concurrent access
+- Malformed output handling in tests
+
+---
+
+**Document Status:** Ready for Implementation (Revised Post-Review)
+**Reviewers:** Codex (GPT-5-Codex, 2025-01-24)
 **Approval Required:** Yes (before implementation)
