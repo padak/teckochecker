@@ -46,6 +46,12 @@ class Secret(Base):
         foreign_keys="PollingJob.keboola_secret_id",
         cascade="all, delete-orphan",
     )
+    e2b_jobs: Mapped[list["CustomCheckJob"]] = relationship(
+        "CustomCheckJob",
+        back_populates="e2b_secret",
+        foreign_keys="CustomCheckJob.e2b_secret_id",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<Secret(id={self.id}, name='{self.name}', type='{self.type}')>"
